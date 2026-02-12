@@ -1,0 +1,18 @@
+# Dependencies
+node_modules/
+frontend/node_modules/
+
+# Environment Variables (SECRETS)
+.env
+frontend/.env
+
+# Firebase Service Account (SUPER SECRET)
+firebase-service-account.json
+
+# Build files
+frontend/build/
+
+# IDE files
+.vscode/
+.idea/
+.DS_Store
