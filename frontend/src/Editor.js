@@ -14,7 +14,10 @@ const Editor = () => {
   const [scaleFactor, setScaleFactor] = useState(1);
   const [activeTool, setActiveTool] = useState('NONE'); 
   const [ortho, setOrtho] = useState(false);
-  const [snapMode, setSnapMode] = useState('STANDARD'); // 'STANDARD', 'STRICT', 'OFF'
+  
+  // SIMPLIFIED SNAP (Just On/Off)
+  const [isSnapping, setIsSnapping] = useState(true); 
+  
   const [justification, setJustification] = useState('CENTER');
   const [thickness, setThickness] = useState(0.23);
 
@@ -56,10 +59,10 @@ const Editor = () => {
     return () => window.removeEventListener('SEMANTIC_WALL_UPDATED', handleUpdate);
   }, [scaleFactor]);
 
-  // --- 3. REDRAW WALLS (Sync State to Viewer) ---
+  // --- 3. REDRAW (Sync Visuals) ---
   useEffect(() => {
       if (viewerRef.current) {
-          viewerRef.current.clearWalls(); // Clear old
+          viewerRef.current.clearWalls(); 
           walls.forEach(wall => {
               viewerRef.current.drawSolidWall(wall.points.p1, wall.points.p2, wall.thickness, wall.justification);
           });
@@ -75,64 +78,59 @@ const Editor = () => {
               thickness,
               justification,
               isOrtho: ortho,
-              snapMode: snapMode,
+              isSnapping: isSnapping, // Pass simple boolean
               walls // Pass walls for handles
           });
       }
-  }, [activeTool, thickness, justification, ortho, snapMode, walls]);
+  }, [activeTool, thickness, justification, ortho, isSnapping, walls]);
 
-
-  // --- UI HANDLERS ---
+  // --- UI ACTIONS ---
   const toggleJustification = () => {
       if (justification === 'CENTER') setJustification('LEFT');
       else if (justification === 'LEFT') setJustification('RIGHT');
       else setJustification('CENTER');
   };
-
-  const updateHeight = (id, val) => {
-      setWalls(prev => prev.map(w => w.id === id ? { ...w, height: parseFloat(val) || 0 } : w));
-  };
-  
-  const deleteWall = (id) => {
-      setWalls(prev => prev.filter(w => w.id !== id));
-  };
+  const updateHeight = (id, val) => setWalls(prev => prev.map(w => w.id === id ? { ...w, height: parseFloat(val) || 0 } : w));
+  const deleteWall = (id) => setWalls(prev => prev.filter(w => w.id !== id));
 
   return (
     <div className="flex h-screen bg-slate-900 font-sans overflow-hidden">
       
       {/* 1. TOOLBAR */}
-      <Toolbar 
-        activeTool={activeTool}
-        setActiveTool={setActiveTool}
-        justification={justification}
-        toggleJustification={toggleJustification}
-        ortho={ortho}
-        setOrtho={setOrtho}
-        snapMode={snapMode}
-        setSnapMode={setSnapMode}
-      />
+      <div className="absolute left-4 top-20 bottom-20 w-16 bg-slate-800 rounded-2xl border border-slate-700 shadow-2xl z-30 flex flex-col items-center py-4 gap-4">
+        
+        {/* DRAW */}
+        <button onClick={() => setActiveTool(activeTool === 'WALL' ? 'NONE' : 'WALL')} className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${activeTool === 'WALL' ? 'bg-orange-500 text-white' : 'bg-slate-700 text-slate-400'}`}>🧱</button>
+        
+        {/* EDIT */}
+        <button onClick={() => setActiveTool(activeTool === 'EDIT' ? 'NONE' : 'EDIT')} className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${activeTool === 'EDIT' ? 'bg-green-500 text-white' : 'bg-slate-700 text-slate-400'}`}>✏️</button>
+        
+        <div className="w-8 h-px bg-slate-600 my-1"></div>
+
+        {/* ALIGN */}
+        <button onClick={toggleJustification} className="w-10 h-10 rounded-xl flex flex-col items-center justify-center bg-slate-700 text-white border border-slate-600">
+             <span className="text-xl">{justification === 'CENTER' ? '⌾' : justification === 'LEFT' ? '⇠' : '⇢'}</span>
+        </button>
+
+        {/* ORTHO */}
+        <button onClick={() => setOrtho(!ortho)} className={`w-10 h-10 rounded-xl flex flex-col items-center justify-center transition-all ${ortho ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-500'}`}>
+             <span className="text-xl">📐</span><span className="text-[6px]">ORTHO</span>
+        </button>
+
+        {/* SNAP */}
+        <button onClick={() => setIsSnapping(!isSnapping)} className={`w-10 h-10 rounded-xl flex flex-col items-center justify-center transition-all ${isSnapping ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-500'}`}>
+             <span className="text-xl">🧲</span><span className="text-[6px]">SNAP</span>
+        </button>
+
+      </div>
 
       {/* 2. VIEWER */}
       <div className="flex-1 relative ml-20 bg-black rounded-l-3xl overflow-hidden border-l border-slate-700">
-         {/* TOP INFO BAR */}
          <div className="absolute top-6 left-1/2 -translate-x-1/2 z-50 pointer-events-none">
             <div className="bg-slate-800/90 backdrop-blur-md px-6 py-2.5 rounded-full border border-slate-600 shadow-xl text-white text-xs font-bold flex items-center gap-4">
-                <div className="flex items-center gap-2">
-                    <span className="text-slate-400 uppercase text-[10px]">Mode</span>
-                    <span className={`px-2 py-0.5 rounded ${activeTool === 'WALL' ? 'bg-orange-500' : activeTool === 'EDIT' ? 'bg-green-500' : 'bg-slate-700 text-slate-300'}`}>
-                        {activeTool === 'WALL' ? 'DRAW' : activeTool === 'EDIT' ? 'EDIT' : 'VIEW'}
-                    </span>
-                </div>
-                <div className="w-px h-4 bg-slate-600"></div>
-                <div className="flex items-center gap-2">
-                    <span className="text-slate-400 uppercase text-[10px]">Align</span>
-                    <span className="text-blue-400">{justification}</span>
-                </div>
-                <div className="w-px h-4 bg-slate-600"></div>
-                <div className="flex items-center gap-2">
-                    <span className="text-slate-400 uppercase text-[10px]">Snap</span>
-                    <span className={snapMode==='STRICT'?'text-red-400':snapMode==='STANDARD'?'text-blue-400':'text-slate-500'}>{snapMode}</span>
-                </div>
+                <span>{activeTool === 'WALL' ? 'DRAW MODE' : activeTool === 'EDIT' ? 'EDIT MODE' : 'VIEW MODE'}</span>
+                <span className="text-slate-400">|</span>
+                <span>{isSnapping ? 'SNAP ON' : 'SNAP OFF'}</span>
             </div>
          </div>
          <ApsViewer ref={viewerRef} urn={decodeURIComponent(urn)} scaleFactor={scaleFactor} />
@@ -140,7 +138,6 @@ const Editor = () => {
 
       {/* 3. SIDEBAR */}
       <Sidebar walls={walls} deleteWall={deleteWall} updateHeight={updateHeight} />
-
     </div>
   );
 };

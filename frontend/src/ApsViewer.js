@@ -1,6 +1,6 @@
 /* global Autodesk, THREE */
 import React, { useEffect, useRef, useImperativeHandle, forwardRef } from 'react';
-import WallDrawingTool from './tools/WallDrawingTool'; 
+import WallDrawingTool from './tools/WallDrawingTool/WallDrawingTool'; 
 
 const ApsViewer = forwardRef(({ urn, scaleFactor = 1 }, ref) => {
   const containerRef = useRef(null);
