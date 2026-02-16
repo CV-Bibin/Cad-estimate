@@ -8,6 +8,10 @@ const ApsViewer = forwardRef(({ urn, scaleFactor = 1 }, ref) => {
     const toolRef = useRef(null);
 
     useImperativeHandle(ref, () => ({
+        
+        // --- 1. CRITICAL FIX: EXPOSE VIEWER INSTANCE ---
+        viewer: viewerRef.current, 
+        // -----------------------------------------------
 
         updateSettings: (settings) => {
             if (toolRef.current) {
@@ -35,8 +39,10 @@ const ApsViewer = forwardRef(({ urn, scaleFactor = 1 }, ref) => {
         clearWalls: () => {
             if (viewerRef.current) {
                 // Clear the scene to redraw fresh walls from React state
-                viewerRef.current.overlays.removeScene('custom-scene');
-                viewerRef.current.overlays.addScene('custom-scene');
+                if (viewerRef.current.overlays.hasScene('custom-scene')) {
+                    viewerRef.current.overlays.removeScene('custom-scene');
+                    viewerRef.current.overlays.addScene('custom-scene');
+                }
                 viewerRef.current.impl.invalidate(true);
             }
         },
@@ -135,7 +141,7 @@ const ApsViewer = forwardRef(({ urn, scaleFactor = 1 }, ref) => {
                     viewer, 
                     handleWallCreated, 
                     handleWallUpdated, 
-                    handleWallDeleted // <--- Added here
+                    handleWallDeleted 
                 );
                 // ----------------------------------------------------
 

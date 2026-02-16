@@ -142,6 +142,18 @@ export default class WallDrawingTool {
         return null;
     }
 
+highlightWallById(id) {
+        if (!id) {
+            this.visuals.clearEraserHighlight();
+            return;
+        }
+        const wall = this.walls.find(w => w.id === id);
+        if (wall) {
+            this.visuals.showEraserHighlight(wall);
+        }
+    }
+
+
     // --- HANDLERS ---
 
     handleButtonDown(event, button) {
