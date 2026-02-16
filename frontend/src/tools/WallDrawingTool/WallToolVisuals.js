@@ -5,30 +5,62 @@ export default class WallToolVisuals {
     constructor(viewer) {
         this.viewer = viewer;
         this.tempMesh = null;
+        this.eraserMesh = null; // NEW: The Red Highlight
         this.visualHandles = [];
 
-        // --- REUSABLE RESOURCES (Copied exactly from your constructor) ---
+        // Geometries/Materials
         this.handleGeo = new THREE.SphereGeometry(0.15, 12, 12);
+        this.handleMatNormal = new THREE.MeshBasicMaterial({ color: 0x00FF00, transparent: true, opacity: 0.35, depthTest: false });
+        this.handleMatHover = new THREE.MeshBasicMaterial({ color: 0xFFFF00, transparent: true, opacity: 0.6, depthTest: false });
+        this.tempWallMat = new THREE.MeshBasicMaterial({ color: 0xFFA500, opacity: 0.6, transparent: true, depthTest: false });
         
-        this.handleMatNormal = new THREE.MeshBasicMaterial({ 
-            color: 0x00FF00, transparent: true, opacity: 0.35, depthTest: false 
-        });
-        
-        this.handleMatHover = new THREE.MeshBasicMaterial({ 
-            color: 0xFFFF00, transparent: true, opacity: 0.6, depthTest: false 
-        });
-        
-        this.tempWallMat = new THREE.MeshBasicMaterial({ 
-            color: 0xFFA500, opacity: 0.6, transparent: true, depthTest: false 
-        });
+        // NEW: Eraser Material (Red)
+        this.eraserMat = new THREE.MeshBasicMaterial({ color: 0xFF0000, opacity: 0.5, transparent: true, depthTest: false });
 
-        // Ensure Overlay Scene Exists
         if (!this.viewer.overlays.hasScene('custom-scene')) {
             this.viewer.overlays.addScene('custom-scene');
         }
     }
 
-    // --- GHOST WALL (Copied from updateTempMesh) ---
+    // --- ERASER HIGHLIGHT ---
+    showEraserHighlight(wall) {
+        this.clearEraserHighlight(); // Clear previous
+        
+        if (!wall) return;
+
+        const p1 = wall.points.p1;
+        const p2 = wall.points.p2;
+        const dx = p2.x - p1.x;
+        const dy = p2.y - p1.y;
+        const len = Math.sqrt(dx * dx + dy * dy);
+
+        // Make it slightly thicker than the real wall so it's visible
+        const geometry = new THREE.BoxGeometry(len, wall.thickness + 0.1, 1.0); 
+        this.eraserMesh = new THREE.Mesh(geometry, this.eraserMat);
+
+        const midX = (p1.x + p2.x) / 2;
+        const midY = (p1.y + p2.y) / 2;
+        
+        // Lift Z even higher (+1.5) so it covers everything
+        this.eraserMesh.position.set(midX, midY, p1.z + 1.5); 
+        this.eraserMesh.rotation.z = Math.atan2(dy, dx);
+
+        this.viewer.overlays.addMesh(this.eraserMesh, 'custom-scene');
+        this.viewer.impl.invalidate(true, true, true);
+    }
+
+    clearEraserHighlight() {
+        if (this.eraserMesh) {
+            this.viewer.overlays.removeMesh(this.eraserMesh, 'custom-scene');
+            this.eraserMesh = null;
+            this.viewer.impl.invalidate(true, true, true);
+        }
+    }
+
+    // ... (Keep existing updateGhostWall, refreshHandles, clearHandles, hitTestHandlesScreenSpace EXACTLY as they were) ...
+    // Note: I am omitting them here for brevity, but DO NOT DELETE THEM from your file.
+    
+    // --- GHOST WALL ---
     updateGhostWall(p1, p2, thickness, justification) {
         this.clearGhostWall();
         
@@ -69,7 +101,7 @@ export default class WallToolVisuals {
         }
     }
 
-    // --- HANDLES (Copied from refreshHandles) ---
+    // --- HANDLES ---
     refreshHandles(walls, handlePlacement) {
         this.clearHandles();
         if (!walls) return;
@@ -84,6 +116,7 @@ export default class WallToolVisuals {
                 const basePos = w.points[t];
 
                 const v = new THREE.Mesh(this.handleGeo, this.handleMatNormal);
+                // Lift Z + 1.0
                 v.position.set(basePos.x + offset.x, basePos.y + offset.y, basePos.z + 1.0);
                 v.userData = { wallId: w.id, pointType: t };
 
@@ -100,9 +133,9 @@ export default class WallToolVisuals {
         this.viewer.impl.invalidate(true);
     }
 
-    // --- HIT TEST (Copied from hitTestHandlesScreenSpace) ---
+    // --- HIT TEST ---
     hitTestHandlesScreenSpace(canvasX, canvasY) {
-        const threshold = 15;
+        const threshold = 15; // Pixels
         for (let handle of this.visualHandles) {
             const screenPoint = this.viewer.worldToClient(handle.position);
             const dx = Math.abs(screenPoint.x - canvasX);

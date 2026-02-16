@@ -3,12 +3,12 @@ import WallToolVisuals from './WallToolVisuals';
 import { WallToolMath } from './WallToolMath';
 
 export default class WallDrawingTool {
-    constructor(viewer, onWallCreated, onWallUpdated) {
+    // NOTE: Added onWallDeleted callback
+    constructor(viewer, onWallCreated, onWallUpdated, onWallDeleted) {
         this.viewer = viewer;
         this.names = ['wall-drawing-tool'];
         this.active = false;
         
-        // 1. Initialize Visuals
         this.visuals = new WallToolVisuals(viewer);
         this.snapper = null;
 
@@ -17,6 +17,7 @@ export default class WallDrawingTool {
         this.points = []; 
         this.selectedHandle = null; 
         this.hoveredHandle = null;
+        this.hoveredWallId = null; // For eraser
 
         // Settings
         this.thickness = 0.23;
@@ -28,6 +29,7 @@ export default class WallDrawingTool {
 
         this.onWallCreated = onWallCreated;
         this.onWallUpdated = onWallUpdated; 
+        this.onWallDeleted = onWallDeleted; // NEW
     }
 
     getNames() { return this.names; }
@@ -46,14 +48,16 @@ export default class WallDrawingTool {
 
         if (settings.mode && settings.mode !== this.mode) {
             this.mode = settings.mode;
-            this.points = [];
             
-            // Visuals Sync
+            // Clean up old state
+            this.points = [];
             this.visuals.clearGhostWall();
+            this.visuals.clearHandles();
+            this.visuals.clearEraserHighlight(); // Clean eraser
+            
+            // Set up new state
             if (this.mode === 'EDIT') {
                 this.visuals.refreshHandles(this.walls, this.handlePlacement);
-            } else {
-                this.visuals.clearHandles();
             }
             this.updateCursor();
         }
@@ -69,6 +73,8 @@ export default class WallDrawingTool {
         this.active = true;
         this.points = [];
         
+        // Snapper is useful for DRAW and EDIT, but maybe not strictly needed for ERASE
+        // But we keep it active for simplicity
         if (this.isSnapping) {
             this.snapper = new Autodesk.Viewing.Extensions.Snapping.Snapper(this.viewer, {
                 renderSnappedGeometry: true,
@@ -79,13 +85,11 @@ export default class WallDrawingTool {
             this.viewer.toolController.activateTool(this.snapper.getName());
         }
         
-        // Ensure Scene exists (Visuals class handles this, but double check doesn't hurt)
         if (!this.viewer.overlays.hasScene('custom-scene')) {
             this.viewer.overlays.addScene('custom-scene');
         }
         
         this.updateCursor();
-        console.log(`🧱 Tool Active. Mode: ${this.mode}`);
     }
 
     deactivate() {
@@ -95,6 +99,7 @@ export default class WallDrawingTool {
         
         this.visuals.clearGhostWall();
         this.visuals.clearHandles();
+        this.visuals.clearEraserHighlight();
         
         if (this.snapper) {
             this.viewer.toolController.deactivateTool(this.snapper.getName());
@@ -107,28 +112,60 @@ export default class WallDrawingTool {
         if (!this.active) return;
         const canvas = this.viewer.canvas;
         
-        if (this.mode === 'DRAW') {
-            canvas.style.cursor = 'crosshair';
-        } else if (this.mode === 'EDIT') {
+        if (this.mode === 'DRAW') canvas.style.cursor = 'crosshair';
+        else if (this.mode === 'ERASER') canvas.style.cursor = 'not-allowed'; // Eraser Icon
+        else if (this.mode === 'EDIT') {
             if (this.selectedHandle) canvas.style.cursor = 'grabbing';
             else if (this.hoveredHandle) canvas.style.cursor = 'pointer';
             else canvas.style.cursor = 'default';
         }
     }
 
-    // --- MOUSE INPUT ---
-    handleButtonDown(event, button) {
-        if (button === 2) { // Right Click
-             if (this.points.length > 0) {
-                this.points = [];
-                this.visuals.clearGhostWall();
-                return true; 
-             }
-             return false;
-        }
+    // --- HELPER: Find wall under mouse ---
+    hitTestWall(canvasX, canvasY) {
+        if (!this.walls || this.walls.length === 0) return null;
 
+        const threshold = 15; // Pixel distance to trigger eraser
+
+        for (let w of this.walls) {
+            // Convert 3D points to Screen 2D
+            const s1 = this.viewer.worldToClient(w.points.p1);
+            const s2 = this.viewer.worldToClient(w.points.p2);
+
+            // Calculate distance from Mouse to Line Segment
+            const dist = WallToolMath.pointToSegmentDistance(canvasX, canvasY, s1.x, s1.y, s2.x, s2.y);
+            
+            if (dist < threshold) {
+                return w; // Return the wall object
+            }
+        }
+        return null;
+    }
+
+    // --- HANDLERS ---
+
+    handleButtonDown(event, button) {
+        
+        
+        if (button === 2) { 
+             this.points = [];
+             this.visuals.clearGhostWall();
+             return true;
+        }
         if (button !== 0) return false;
 
+        // 1. ERASER CLICK
+        if (this.mode === 'ERASER') {
+            const wall = this.hitTestWall(event.canvasX, event.canvasY);
+            if (wall && this.onWallDeleted) {
+                this.onWallDeleted(wall.id); // Trigger Delete
+                this.visuals.clearEraserHighlight();
+                this.hoveredWallId = null;
+                return true;
+            }
+        }
+
+        // 2. EDIT CLICK
         if (this.mode === 'EDIT') {
             const hit = this.visuals.hitTestHandlesScreenSpace(event.canvasX, event.canvasY);
             if (hit) {
@@ -143,6 +180,21 @@ export default class WallDrawingTool {
     handleMouseMove(event) {
         if (this.snapper) this.snapper.handleMouseMove(event);
 
+        // 1. ERASER HOVER
+        if (this.mode === 'ERASER') {
+            const wall = this.hitTestWall(event.canvasX, event.canvasY);
+            
+            if (wall && wall.id !== this.hoveredWallId) {
+                this.hoveredWallId = wall.id;
+                this.visuals.showEraserHighlight(wall); // Show Red Box
+            } else if (!wall && this.hoveredWallId) {
+                this.hoveredWallId = null;
+                this.visuals.clearEraserHighlight();
+            }
+            return false;
+        }
+
+        // 2. EDIT DRAG/HOVER
         if (this.mode === 'EDIT') {
             if (this.selectedHandle) {
                 const pt = this.getBestPoint(event);
@@ -152,14 +204,10 @@ export default class WallDrawingTool {
                 }
                 return true; 
             }
-            
-            // Hover Effect
             const hit = this.visuals.hitTestHandlesScreenSpace(event.canvasX, event.canvasY);
             if (hit !== this.hoveredHandle) {
-                // Swap materials using Visuals properties
                 if (this.hoveredHandle) this.hoveredHandle.material = this.visuals.handleMatNormal;
                 if (hit) hit.material = this.visuals.handleMatHover;
-                
                 this.hoveredHandle = hit;
                 this.updateCursor();
                 this.viewer.impl.invalidate(false, false, true);
@@ -167,13 +215,12 @@ export default class WallDrawingTool {
             return false;
         }
 
+        // 3. DRAW PREVIEW
         if (this.mode === 'DRAW' && this.points.length === 1) {
             const pt = this.getBestPoint(event);
             if (pt) {
-                let endPt = this.isOrtho ? WallToolMath.applyOrtho(this.points[0], pt) : { ...pt };
-                // NOTE: Z-index logic handled inside visuals
-                if(this.isOrtho) endPt.z = this.points[0].z; 
-
+                let endPt = this.isOrtho ? WallToolMath.applyOrtho(this.points[0], pt) : pt;
+                if(this.isOrtho) endPt.z = this.points[0].z; // Lock Z
                 this.visuals.updateGhostWall(this.points[0], endPt, this.thickness, this.justification);
             }
             return true; 
@@ -214,6 +261,7 @@ export default class WallDrawingTool {
         return false;
     }
 
+    // ... (Keep getBestPoint and handleKeyDown exactly as before)
     handleKeyDown(event, keyCode) {
         if (keyCode === 27) { // Escape
             this.points = [];
