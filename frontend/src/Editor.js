@@ -19,6 +19,7 @@ const Editor = () => {
   const [ortho, setOrtho] = useState(false);
   const [isSnapping, setIsSnapping] = useState(true); 
   const [justification, setJustification] = useState('CENTER');
+  const [isViewLocked, setIsViewLocked] = useState(false);
   
   // --- NEW: CALIBRATION STATE ---
   const [isCalibrated, setIsCalibrated] = useState(false);
@@ -244,12 +245,14 @@ const Editor = () => {
       />
 
       {/* 2. TOOLBAR */}
-      <div className="absolute left-4 top-20 bottom-20 w-16 bg-slate-800 rounded-2xl border border-slate-700 shadow-2xl z-30 flex flex-col items-center py-4 gap-4">
-        <button onClick={() => setActiveTool(activeTool === 'WALL' ? 'NONE' : 'WALL')} className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${activeTool === 'WALL' ? 'bg-orange-500 text-white' : 'bg-slate-700 text-slate-400'}`} title="Draw Wall">🧱</button>
-        <button onClick={() => setActiveTool(activeTool === 'EDIT' ? 'NONE' : 'EDIT')} className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${activeTool === 'EDIT' ? 'bg-green-500 text-white' : 'bg-slate-700 text-slate-400'}`} title="Edit Wall">✏️</button>
-        <button onClick={() => setActiveTool(activeTool === 'ERASER' ? 'NONE' : 'ERASER')} className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${activeTool === 'ERASER' ? 'bg-red-500 text-white' : 'bg-slate-700 text-slate-400'}`} title="Erase Wall">✕</button>
-        
-        <div className="w-8 h-px bg-slate-600 my-1"></div>
+     <div 
+  className={`absolute left-4 top-20 bottom-20 w-16 bg-slate-800 rounded-2xl border border-slate-700 shadow-2xl z-30 flex flex-col items-center py-4 gap-4 transition-all duration-300 
+    ${!isCalibrated ? 'opacity-40 pointer-events-none grayscale' : 'opacity-100 pointer-events-auto'}`}
+>
+  <button onClick={() => setActiveTool(activeTool === 'WALL' ? 'NONE' : 'WALL')} className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${activeTool === 'WALL' ? 'bg-orange-500 text-white' : 'bg-slate-700 text-slate-400'}`} title="Draw Wall">🧱</button>
+  <button onClick={() => setActiveTool(activeTool === 'EDIT' ? 'NONE' : 'EDIT')} className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${activeTool === 'EDIT' ? 'bg-green-500 text-white' : 'bg-slate-700 text-slate-400'}`} title="Edit Wall">✏️</button>
+  <button onClick={() => setActiveTool(activeTool === 'ERASER' ? 'NONE' : 'ERASER')} className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${activeTool === 'ERASER' ? 'bg-red-500 text-white' : 'bg-slate-700 text-slate-400'}`} title="Erase Wall">✕</button>
+  <div className="w-8 h-px bg-slate-600 my-1"></div>
         
         {/* --- NEW: UNDO / REDO BUTTONS --- */}
         <button onClick={handleUndo} disabled={history.length === 0} className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all text-xl ${history.length === 0 ? 'bg-slate-800 text-slate-600 cursor-not-allowed' : 'bg-slate-700 text-white hover:bg-slate-600 active:scale-95'}`} title="Undo (Ctrl+Z)">↩️</button>
@@ -288,7 +291,7 @@ const Editor = () => {
                 <div className={`px-3 py-1.5 rounded-full text-[10px] font-bold flex items-center gap-1.5 transition-colors ${ortho ? 'text-cyan-300 bg-cyan-500/10' : 'text-slate-600'}`}><span className="text-xs">📐</span><span className={ortho ? 'opacity-100' : 'opacity-50'}>ORTHO {ortho ? 'ON' : 'OFF'}</span></div>
             </div>
          </div>
-         <ApsViewer ref={viewerRef} urn={decodeURIComponent(urn)} scaleFactor={scaleFactor} />
+         <ApsViewer ref={viewerRef} urn={decodeURIComponent(urn)} scaleFactor={scaleFactor} isViewLocked={isViewLocked} />
       </div>
 
       {/* 4. SIDEBAR - PASS LOCK STATES */}
@@ -308,6 +311,9 @@ const Editor = () => {
         isCalibrated={isCalibrated} 
         onStartCalibration={() => setActiveTool('CALIBRATION')}
         onUnlockScale={handleUnlockScale}
+
+        isViewLocked={isViewLocked}
+    setIsViewLocked={setIsViewLocked}
       />
     </div>
   );

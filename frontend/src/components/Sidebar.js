@@ -18,63 +18,65 @@ const Sidebar = ({
     // --- NEW PROPS ---
     isCalibrated, 
     onStartCalibration,
-    onUnlockScale
+    onUnlockScale,
+    isViewLocked,       // Prop from Editor.js
+    setIsViewLocked     // Prop from Editor.js
 }) => {
   
   return (
     <div className="w-[380px] bg-white border-l border-slate-200 z-30 flex flex-col shadow-2xl h-full font-sans">
 
       {/* --- TOP SECTION: SETTINGS --- */}
-      <div className="bg-slate-50 border-b border-slate-200 z-20 shadow-sm">
-        
-        {/* 1. SCALE CALIBRATION (CONDITIONAL UI) */}
+<div className="bg-slate-50 border-b border-slate-200 z-20 shadow-sm">
+  
+  {/* OPTIMIZED COMPACT ROW: 30% Lock / 70% Calibrate */}
+  <div className="px-3 py-3 border-b border-slate-200 bg-slate-100/30">
+    <div className="flex gap-2 items-stretch h-12">
+      
+      {/* 1. COMPACT VIEW LOCK (30% Width) */}
+      <button 
+          onClick={() => setIsViewLocked(!isViewLocked)} 
+          className={`w-[30%] flex flex-col items-center justify-center rounded-xl border transition-all active:scale-95
+              ${isViewLocked 
+                  ? 'bg-red-500 text-white border-red-600 shadow-inner' 
+                  : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'}`}
+          title={isViewLocked ? "Unlock Navigation" : "Lock View"}
+      >
+          <span className="text-sm">{isViewLocked ? '🔒' : '🔓'}</span>
+          <span className="text-[7px] font-black uppercase tracking-tighter mt-0.5">
+            {isViewLocked ? 'Locked' : 'Lock'}
+          </span>
+      </button>
+
+      {/* 2. PROMINENT CALIBRATION (70% Width) */}
+      <div className="flex-1">
         {isCalibrated ? (
-            /* --- LOCKED STATE (Green) --- */
-            <div className="px-4 py-3 border-b border-slate-200 bg-green-50/50">
-                <div className="flex items-center justify-between mb-2">
-                    <h2 className="text-[10px] font-black text-green-600 uppercase tracking-widest flex items-center gap-1">
-                        <span>🔒</span> Scale Locked
-                    </h2>
-                    <button 
-                        onClick={onUnlockScale}
-                        className="text-[9px] font-bold text-slate-400 hover:text-red-500 underline decoration-dotted cursor-pointer"
-                        title="Click to reset scale"
-                    >
-                        UNLOCK
-                    </button>
-                </div>
-
-                <div className="flex items-center justify-between bg-white border border-green-200 rounded px-3 py-2 shadow-sm">
-                    <div className="flex flex-col">
-                         <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Current Factor</span>
-                         <span className="text-xs font-mono font-bold text-slate-700">{scaleFactor.toFixed(6)}</span>
-                    </div>
-                    <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center text-green-600 font-bold border border-green-200">
-                        ✓
-                    </div>
-                </div>
+          <div className="h-full flex items-center justify-between bg-green-50 border border-green-200 rounded-xl px-3">
+            <div className="flex flex-col">
+              <span className="text-[8px] font-black text-green-600 uppercase tracking-tighter">Scale Locked</span>
+              <span className="text-[11px] font-mono font-bold text-green-700 leading-none">{scaleFactor.toFixed(4)}</span>
             </div>
+            <button 
+              onClick={onUnlockScale} 
+              className="p-1.5 hover:bg-green-100 rounded-lg transition-colors"
+              title="Reset Scale"
+            >
+              <span className="text-[10px] text-green-600 grayscale hover:grayscale-0 transition-all">🔄</span>
+            </button>
+          </div>
         ) : (
-            /* --- UNLOCKED STATE (Purple Button) --- */
-            <div className="px-4 py-3 border-b border-slate-200 bg-purple-50/50">
-                <div className="flex items-center justify-between mb-2">
-                    <h2 className="text-[10px] font-black text-purple-600 uppercase tracking-widest flex items-center gap-1">
-                        <span>📏</span> Calibrate Scale
-                    </h2>
-                    <div className="text-[9px] font-mono text-slate-400">Current: {scaleFactor ? scaleFactor.toFixed(5) : '1.0'}</div>
-                </div>
-
-                <button 
-                    onClick={onStartCalibration}
-                    className="w-full flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-700 text-white text-[10px] font-bold py-2 rounded shadow-sm transition-all active:scale-95 uppercase tracking-wide"
-                >
-                    <span>🎯</span> Pick Dimension on Plan
-                </button>
-                <p className="text-[9px] text-purple-400/80 text-center mt-1.5 leading-tight">
-                    Click 2 points on the plan, then enter the REAL length.
-                </p>
-            </div>
+          <button 
+              onClick={onStartCalibration}
+              className="w-full h-full flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl shadow-md transition-all active:scale-95 group"
+          >
+              <span className="text-base group-hover:rotate-12 transition-transform">📏</span>
+              <span className="text-[10px] font-black uppercase tracking-widest">Calibrate Plan</span>
+          </button>
         )}
+      </div>
+
+    </div>
+  </div>
 
         {/* 2. DEFAULT SETTINGS (Unchanged) */}
         <div className="px-4 py-3">
@@ -107,7 +109,7 @@ const Sidebar = ({
         </div>
       </div>
 
-      {/* --- WALL LIST (Unchanged) --- */}
+      {/* --- WALL LIST --- */}
       <div className="flex-1 overflow-y-auto bg-slate-100/50">
         <div className="px-4 py-2 border-b border-slate-200 sticky top-0 bg-slate-100/95 backdrop-blur-sm z-10 flex justify-between items-center">
             <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Active Walls</h3>

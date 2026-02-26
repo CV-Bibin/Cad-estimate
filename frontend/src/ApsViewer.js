@@ -2,7 +2,7 @@
 import React, { useEffect, useRef, useImperativeHandle, forwardRef } from 'react';
 import WallDrawingTool from './tools/WallDrawingTool/WallDrawingTool';
 
-const ApsViewer = forwardRef(({ urn, scaleFactor = 1 }, ref) => {
+const ApsViewer = forwardRef(({ urn, scaleFactor = 1, isViewLocked = false }, ref) => {
     const containerRef = useRef(null);
     const viewerRef = useRef(null);
     const toolRef = useRef(null);
@@ -111,6 +111,21 @@ const ApsViewer = forwardRef(({ urn, scaleFactor = 1 }, ref) => {
             detail: { id }
         }));
     };
+
+    // --- NEW: VIEWPORT NAVIGATION LOCK ---
+    useEffect(() => {
+        if (viewerRef.current) {
+            // Locks/unlocks zoom, pan, and orbit
+            viewerRef.current.setNavigationLock(isViewLocked);
+            
+            // Visual feedback via cursor change
+            if (isViewLocked) {
+                viewerRef.current.canvas.style.cursor = 'not-allowed';
+            } else {
+                viewerRef.current.canvas.style.cursor = 'default';
+            }
+        }
+    }, [isViewLocked]);
 
     // --- UPDATED: PREVENT DOUBLE INITIALIZATION BUG ---
     useEffect(() => {

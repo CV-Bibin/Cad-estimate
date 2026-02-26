@@ -9,9 +9,9 @@ export default class WallToolVisuals {
         this.visualHandles = [];
 
         // Geometries/Materials
-        this.handleGeo = new THREE.SphereGeometry(0.15, 12, 12);
-        this.handleMatNormal = new THREE.MeshBasicMaterial({ color: 0x00FF00, transparent: true, opacity: 0.35, depthTest: false });
-        this.handleMatHover = new THREE.MeshBasicMaterial({ color: 0xFFFF00, transparent: true, opacity: 0.6, depthTest: false });
+       this.handleGeo = new THREE.BoxGeometry(0.08, 0.08, 0.01);
+        this.handleMatNormal = new THREE.MeshBasicMaterial({ color: 0x00FF00, transparent: true, opacity: 0.8, depthTest: false });
+        this.handleMatHover = new THREE.MeshBasicMaterial({ color: 0xFF1493, transparent: false, opacity: 1.0, depthTest: false });
         this.tempWallMat = new THREE.MeshBasicMaterial({ color: 0xFFA500, opacity: 0.6, transparent: true, depthTest: false });
         
         // NEW: Eraser Material (Red)

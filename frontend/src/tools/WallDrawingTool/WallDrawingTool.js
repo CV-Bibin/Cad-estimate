@@ -10,18 +10,18 @@ export default class WallDrawingTool {
         this.viewer = viewer;
         this.names = ['wall-drawing-tool'];
         this.active = false;
-        
+
         this.visuals = new WallToolVisuals(viewer);
         this.snapper = null;
         this.osnapMesh = null;
 
         // State
-        this.mode = 'DRAW'; 
-        this.points = []; 
-        this.selectedHandle = null; 
+        this.mode = 'DRAW';
+        this.points = [];
+        this.selectedHandle = null;
         this.hoveredHandle = null;
         this.hoveredWallId = null; // For eraser
-       
+
 
         // Settings
         this.thickness = 0.23;
@@ -32,7 +32,7 @@ export default class WallDrawingTool {
         this.walls = [];
 
         this.onWallCreated = onWallCreated;
-        this.onWallUpdated = onWallUpdated; 
+        this.onWallUpdated = onWallUpdated;
         this.onWallDeleted = onWallDeleted; // NEW
     }
 
@@ -53,13 +53,13 @@ export default class WallDrawingTool {
 
         if (settings.mode && settings.mode !== this.mode) {
             this.mode = settings.mode;
-            
+
             // Clean up old state
             this.points = [];
             this.visuals.clearGhostWall();
             this.visuals.clearHandles();
             this.visuals.clearEraserHighlight(); // Clean eraser
-            
+
             // Set up new state
             if (this.mode === 'EDIT') {
                 this.visuals.refreshHandles(this.walls, this.handlePlacement);
@@ -77,7 +77,7 @@ export default class WallDrawingTool {
         if (this.active) return;
         this.active = true;
         this.points = [];
-        
+
         // Snapper is useful for DRAW and EDIT, but maybe not strictly needed for ERASE
         // But we keep it active for simplicity
         if (this.isSnapping) {
@@ -89,11 +89,11 @@ export default class WallDrawingTool {
             });
             this.viewer.toolController.activateTool(this.snapper.getName());
         }
-        
+
         if (!this.viewer.overlays.hasScene('custom-scene')) {
             this.viewer.overlays.addScene('custom-scene');
         }
-        
+
         this.updateCursor();
     }
 
@@ -101,7 +101,7 @@ export default class WallDrawingTool {
         if (!this.active) return;
         this.active = false;
         this.points = [];
-        
+
         this.visuals.clearGhostWall();
         this.visuals.clearHandles();
         this.visuals.clearEraserHighlight();
@@ -110,7 +110,7 @@ export default class WallDrawingTool {
             this.viewer.overlays.removeMesh(this.osnapMesh, 'custom-scene');
             this.osnapMesh = null;
         }
-        
+
         if (this.snapper) {
             this.viewer.toolController.deactivateTool(this.snapper.getName());
             this.snapper = null;
@@ -121,7 +121,7 @@ export default class WallDrawingTool {
     updateCursor() {
         if (!this.active) return;
         const canvas = this.viewer.canvas;
-        
+
         if (this.mode === 'DRAW') canvas.style.cursor = 'crosshair';
         else if (this.mode === 'ERASER') canvas.style.cursor = 'not-allowed'; // Eraser Icon
         else if (this.mode === 'EDIT') {
@@ -144,7 +144,7 @@ export default class WallDrawingTool {
 
             // Calculate distance from Mouse to Line Segment
             const dist = WallToolMath.pointToSegmentDistance(canvasX, canvasY, s1.x, s1.y, s2.x, s2.y);
-            
+
             if (dist < threshold) {
                 return w; // Return the wall object
             }
@@ -152,7 +152,7 @@ export default class WallDrawingTool {
         return null;
     }
 
-highlightWallById(id) {
+    highlightWallById(id) {
         if (!id) {
             this.visuals.clearEraserHighlight();
             return;
@@ -166,13 +166,11 @@ highlightWallById(id) {
 
     // --- HANDLERS ---
 
-    handleButtonDown(event, button) {
-        
-        
+   handleButtonDown(event, button) {
         if (button === 2) { 
-             this.points = [];
-             this.visuals.clearGhostWall();
-             return true;
+            this.points = [];
+            this.visuals.clearGhostWall();
+            return true;
         }
         if (button !== 0) return false;
 
@@ -180,55 +178,54 @@ highlightWallById(id) {
         if (this.mode === 'ERASER') {
             const wall = this.hitTestWall(event.canvasX, event.canvasY);
             if (wall && this.onWallDeleted) {
-                this.onWallDeleted(wall.id); // Trigger Delete
+                this.onWallDeleted(wall.id);
                 this.visuals.clearEraserHighlight();
                 this.hoveredWallId = null;
                 return true;
             }
         }
 
-        // 2. EDIT CLICK
+        // 2. EDIT CLICK - THIS IS WHAT WAS BLOCKED
         if (this.mode === 'EDIT') {
             const hit = this.visuals.hitTestHandlesScreenSpace(event.canvasX, event.canvasY);
             if (hit) {
-                this.selectedHandle = hit; 
+                this.selectedHandle = hit; // NOW the tool can grab the handle
                 this.updateCursor();
                 return true; 
             }
         }
         return true; 
     }
-
-// --- ADD THIS ENTIRE NEW FUNCTION ---
+    // --- ADD THIS ENTIRE NEW FUNCTION ---
     drawOsnapIndicator(pos, snapType) {
         // Clear the previous frame's indicator
         if (this.osnapMesh) {
             this.viewer.overlays.removeMesh(this.osnapMesh, 'custom-scene');
             this.osnapMesh = null;
         }
-        
+
         // If we aren't snapping to anything, don't draw a shape
-        if (!pos || snapType === 'none') return; 
-        
+        if (!pos || snapType === 'none') return;
+
         let geom;
         const color = snapType === 'midpoint' ? 0x00FFFF : 0x00FF00;
-        
+
         if (snapType === 'midpoint') {
             // Create a flat triangle for midpoints
-            geom = new THREE.CylinderGeometry(0.04, 0.04, 0.01, 3); 
+            geom = new THREE.CylinderGeometry(0.04, 0.04, 0.01, 3);
             geom.rotateX(Math.PI / 2);
         } else {
             // Create a square box for endpoints
-            geom = new THREE.BoxGeometry(0.06, 0.06, 0.01); 
+            geom = new THREE.BoxGeometry(0.06, 0.06, 0.01);
         }
-        
+
         const mat = new THREE.MeshBasicMaterial({ color: color, depthTest: false, transparent: true, opacity: 0.8 });
         this.osnapMesh = new THREE.Mesh(geom, mat);
         this.osnapMesh.position.copy(pos);
-        
+
         // Prevent the OSNAP shape from blocking clicks!
-        this.osnapMesh.raycast = () => {};
-        
+        this.osnapMesh.raycast = () => { };
+
         this.viewer.overlays.addMesh(this.osnapMesh, 'custom-scene');
         this.viewer.impl.invalidate(true, true, true);
     }
@@ -255,7 +252,7 @@ highlightWallById(id) {
         // 1. ERASER HOVER
         if (this.mode === 'ERASER') {
             const wall = this.hitTestWall(event.canvasX, event.canvasY);
-            
+
             if (wall && wall.id !== this.hoveredWallId) {
                 this.hoveredWallId = wall.id;
                 this.visuals.showEraserHighlight(wall); // Show Red Box
@@ -267,19 +264,52 @@ highlightWallById(id) {
         }
 
         // 2. EDIT DRAG/HOVER
+       // 2. EDIT DRAG/HOVER
         if (this.mode === 'EDIT') {
+            
+            // --- PART A: DRAGGING LOGIC ---
             if (this.selectedHandle) {
                 const pt = this.getBestPoint(event);
                 if (pt) {
-                    this.selectedHandle.position.copy(pt);
+                    let finalPt = pt;
+                    const { wallId, pointType } = this.selectedHandle.userData;
+                    const wall = this.walls.find(w => w.id === wallId);
+
+                    if (wall) {
+                        const stationaryPt = pointType === 'p1' ? wall.points.p2 : wall.points.p1;
+
+                        if (this.isOrtho) {
+                            finalPt = WallToolMath.applyOrtho(stationaryPt, pt);
+                            finalPt.z = stationaryPt.z;
+                        }
+
+                        this.selectedHandle.position.copy(finalPt);
+
+                        const currentScale = this.scaleFactor || 1;
+                        const scaledThickness = this.thickness / currentScale;
+                        
+                        if (pointType === 'p1') {
+                            this.visuals.updateGhostWall(finalPt, stationaryPt, scaledThickness, this.justification);
+                        } else {
+                            this.visuals.updateGhostWall(stationaryPt, finalPt, scaledThickness, this.justification);
+                        }
+                    }
                     this.viewer.impl.invalidate(true, true, true);
                 }
                 return true; 
             }
+
+            // --- PART B: HOVER LOGIC (Pop-up scale) ---
             const hit = this.visuals.hitTestHandlesScreenSpace(event.canvasX, event.canvasY);
             if (hit !== this.hoveredHandle) {
-                if (this.hoveredHandle) this.hoveredHandle.material = this.visuals.handleMatNormal;
-                if (hit) hit.material = this.visuals.handleMatHover;
+                if (this.hoveredHandle) {
+                    this.hoveredHandle.material = this.visuals.handleMatNormal;
+                    this.hoveredHandle.scale.set(1, 1, 1); // Shrink back to normal
+                }
+                if (hit) {
+                    hit.material = this.visuals.handleMatHover;
+                    hit.scale.set(1.6, 1.6, 1.6); // Pop up 160% to hide duplicates
+                }
                 this.hoveredHandle = hit;
                 this.updateCursor();
                 this.viewer.impl.invalidate(false, false, true);
@@ -288,19 +318,19 @@ highlightWallById(id) {
         }
 
         // 3. DRAW PREVIEW
-       if (this.mode === 'DRAW' && this.points.length === 1) {
+        if (this.mode === 'DRAW' && this.points.length === 1) {
             const pt = this.getBestPoint(event);
             if (pt) {
                 let endPt = this.isOrtho ? WallToolMath.applyOrtho(this.points[0], pt) : pt;
-                if(this.isOrtho) endPt.z = this.points[0].z; // Lock Z
-                
+                if (this.isOrtho) endPt.z = this.points[0].z; // Lock Z
+
                 // --- FIX: Apply the scale factor to the preview ---
                 const currentScale = this.scaleFactor || 1;
                 const scaledThickness = this.thickness / currentScale;
 
                 this.visuals.updateGhostWall(this.points[0], endPt, scaledThickness, this.justification);
             }
-            return true; 
+            return true;
         }
         return false;
     }
@@ -311,6 +341,13 @@ highlightWallById(id) {
         if (this.mode === 'EDIT' && this.selectedHandle) {
             const { wallId, pointType } = this.selectedHandle.userData;
             this.onWallUpdated(wallId, pointType, this.selectedHandle.position);
+
+            // --- UPGRADE: Clear the ghost preview when letting go ---
+            this.visuals.clearGhostWall();
+
+            this.selectedHandle.scale.set(1, 1, 1);
+            this.selectedHandle.material = this.visuals.handleMatNormal;
+            
             this.selectedHandle = null;
             this.updateCursor();
             return true;
@@ -319,12 +356,12 @@ highlightWallById(id) {
         if (this.mode === 'DRAW') {
             const pt = this.getBestPoint(event);
             if (!pt) return;
-            
-            let finalPt = this.isOrtho && this.points.length > 0 
-                ? WallToolMath.applyOrtho(this.points[0], pt) 
+
+            let finalPt = this.isOrtho && this.points.length > 0
+                ? WallToolMath.applyOrtho(this.points[0], pt)
                 : { ...pt };
-            
-            if(this.isOrtho && this.points.length > 0) finalPt.z = this.points[0].z;
+
+            if (this.isOrtho && this.points.length > 0) finalPt.z = this.points[0].z;
 
             this.points.push(finalPt);
 
