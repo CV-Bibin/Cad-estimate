@@ -8,7 +8,7 @@ export class CalibrationTool {
         this.onFinished = onFinished;
         
         this.points = [];
-        this.currentHitPoint = null; // Store the point while hovering
+        this.currentHitPoint = null;
         this.indicator = null; 
         this.tempLine = null;
         this.snapper = null;
@@ -65,12 +65,15 @@ export class CalibrationTool {
 
         // B. Calculate the Best Point
         let rawPoint = null;
+        let snapType = 'none'; // <-- NEW: Track the type of snap
 
         // Priority 1: Snapped Point (Green Symbol)
         if (this.snapper && this.snapper.isSnapped()) {
             const result = this.snapper.getSnapResult();
             if (result && result.geomVertex) {
                 rawPoint = result.geomVertex;
+                // In Autodesk, geomType 2 usually represents an edge/midpoint snap
+                snapType = result.geomType === 2 ? 'midpoint' : 'endpoint';
             }
         }
 
@@ -95,7 +98,8 @@ export class CalibrationTool {
 
         // E. Draw Visuals
         if (this.currentHitPoint) {
-            this.drawIndicator(this.currentHitPoint);
+            // <-- UPDATED: Pass snapType to the drawing function
+            this.drawIndicator(this.currentHitPoint, snapType); 
             if (this.points.length === 1) {
                 this.drawTempLine(this.points[0], this.currentHitPoint);
             }
@@ -152,15 +156,29 @@ export class CalibrationTool {
         return p;
     }
 
-    drawIndicator(pos) {
+    // --- UPDATED: OSNAP GEOMETRY LOGIC ---
+    drawIndicator(pos, snapType) {
         if (this.indicator) this.viewer.overlays.removeMesh(this.indicator, 'calibration-scene');
         
-        const geom = new THREE.SphereGeometry(0.15, 8, 8); 
-        const mat = new THREE.MeshBasicMaterial({ color: 0xFF0000, opacity: 0.8, transparent: true, depthTest: false });
+        let geom;
+        let color = 0xFF0000; // Default Red
+
+        if (snapType === 'midpoint') {
+            geom = new THREE.CylinderGeometry(0.04, 0.04, 0.01, 3); // 3-sided cylinder = Triangle
+            geom.rotateX(Math.PI / 2); // Lay the triangle flat
+            color = 0x00FFFF; // Cyan
+        } else if (snapType === 'endpoint') {
+            geom = new THREE.BoxGeometry(0.06, 0.06, 0.01); // Square Box
+            color = 0x00FF00; // Green
+        } else {
+            geom = new THREE.SphereGeometry(0.02, 8, 8); // Standard tiny red dot
+        }
+        
+        const mat = new THREE.MeshBasicMaterial({ color: color, opacity: 0.8, transparent: true, depthTest: false });
         this.indicator = new THREE.Mesh(geom, mat);
         this.indicator.position.copy(pos);
         
-        // *** CRITICAL FIX: Make Red Dot Invisible to Clicks ***
+        // CRITICAL: Make shape invisible to clicks
         this.indicator.raycast = () => {}; 
 
         this.viewer.overlays.addMesh(this.indicator, 'calibration-scene');

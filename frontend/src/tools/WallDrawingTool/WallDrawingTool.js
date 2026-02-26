@@ -1,6 +1,8 @@
-/* global Autodesk */
+/* global Autodesk, THREE */
 import WallToolVisuals from './WallToolVisuals';
 import { WallToolMath } from './WallToolMath';
+
+
 
 export default class WallDrawingTool {
     // NOTE: Added onWallDeleted callback
@@ -11,6 +13,7 @@ export default class WallDrawingTool {
         
         this.visuals = new WallToolVisuals(viewer);
         this.snapper = null;
+        this.osnapMesh = null;
 
         // State
         this.mode = 'DRAW'; 
@@ -18,6 +21,7 @@ export default class WallDrawingTool {
         this.selectedHandle = null; 
         this.hoveredHandle = null;
         this.hoveredWallId = null; // For eraser
+       
 
         // Settings
         this.thickness = 0.23;
@@ -37,6 +41,7 @@ export default class WallDrawingTool {
 
     setSettings(settings) {
         if (settings.thickness !== undefined) this.thickness = settings.thickness;
+        if (settings.scaleFactor !== undefined) this.scaleFactor = settings.scaleFactor;
         if (settings.justification !== undefined) this.justification = settings.justification;
         if (settings.isOrtho !== undefined) this.isOrtho = settings.isOrtho;
         if (settings.handlePlacement !== undefined) this.handlePlacement = settings.handlePlacement;
@@ -100,6 +105,11 @@ export default class WallDrawingTool {
         this.visuals.clearGhostWall();
         this.visuals.clearHandles();
         this.visuals.clearEraserHighlight();
+
+        if (this.osnapMesh) {
+            this.viewer.overlays.removeMesh(this.osnapMesh, 'custom-scene');
+            this.osnapMesh = null;
+        }
         
         if (this.snapper) {
             this.viewer.toolController.deactivateTool(this.snapper.getName());
@@ -189,8 +199,58 @@ highlightWallById(id) {
         return true; 
     }
 
+// --- ADD THIS ENTIRE NEW FUNCTION ---
+    drawOsnapIndicator(pos, snapType) {
+        // Clear the previous frame's indicator
+        if (this.osnapMesh) {
+            this.viewer.overlays.removeMesh(this.osnapMesh, 'custom-scene');
+            this.osnapMesh = null;
+        }
+        
+        // If we aren't snapping to anything, don't draw a shape
+        if (!pos || snapType === 'none') return; 
+        
+        let geom;
+        const color = snapType === 'midpoint' ? 0x00FFFF : 0x00FF00;
+        
+        if (snapType === 'midpoint') {
+            // Create a flat triangle for midpoints
+            geom = new THREE.CylinderGeometry(0.04, 0.04, 0.01, 3); 
+            geom.rotateX(Math.PI / 2);
+        } else {
+            // Create a square box for endpoints
+            geom = new THREE.BoxGeometry(0.06, 0.06, 0.01); 
+        }
+        
+        const mat = new THREE.MeshBasicMaterial({ color: color, depthTest: false, transparent: true, opacity: 0.8 });
+        this.osnapMesh = new THREE.Mesh(geom, mat);
+        this.osnapMesh.position.copy(pos);
+        
+        // Prevent the OSNAP shape from blocking clicks!
+        this.osnapMesh.raycast = () => {};
+        
+        this.viewer.overlays.addMesh(this.osnapMesh, 'custom-scene');
+        this.viewer.impl.invalidate(true, true, true);
+    }
+    // ------------------------------------
+
+
     handleMouseMove(event) {
         if (this.snapper) this.snapper.handleMouseMove(event);
+
+
+        // --- 2. ADD THIS NEW OSNAP DETECTION BLOCK ---
+        let snapType = 'none';
+        if (this.snapper && this.snapper.isSnapped()) {
+            const res = this.snapper.getSnapResult();
+            // geomType 2 is usually a line segment/midpoint in Autodesk
+            if (res) snapType = res.geomType === 2 ? 'midpoint' : 'endpoint';
+        }
+
+        // Get the actual 3D coordinate and draw the shape
+        const pt = this.getBestPoint(event);
+        this.drawOsnapIndicator(pt, snapType);
+        // ---------------------------------------------
 
         // 1. ERASER HOVER
         if (this.mode === 'ERASER') {
@@ -228,12 +288,17 @@ highlightWallById(id) {
         }
 
         // 3. DRAW PREVIEW
-        if (this.mode === 'DRAW' && this.points.length === 1) {
+       if (this.mode === 'DRAW' && this.points.length === 1) {
             const pt = this.getBestPoint(event);
             if (pt) {
                 let endPt = this.isOrtho ? WallToolMath.applyOrtho(this.points[0], pt) : pt;
                 if(this.isOrtho) endPt.z = this.points[0].z; // Lock Z
-                this.visuals.updateGhostWall(this.points[0], endPt, this.thickness, this.justification);
+                
+                // --- FIX: Apply the scale factor to the preview ---
+                const currentScale = this.scaleFactor || 1;
+                const scaledThickness = this.thickness / currentScale;
+
+                this.visuals.updateGhostWall(this.points[0], endPt, scaledThickness, this.justification);
             }
             return true; 
         }

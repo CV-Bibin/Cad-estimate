@@ -47,48 +47,48 @@ const ApsViewer = forwardRef(({ urn, scaleFactor = 1 }, ref) => {
             }
         },
 
-        drawSolidWall: (p1, p2, thickness, justification) => {
-            if (!viewerRef.current) return;
-            const dx = p2.x - p1.x;
-            const dy = p2.y - p1.y;
-            const length = Math.sqrt(dx * dx + dy * dy);
+       drawSolidWall: (p1, p2, thickness, justification) => {
+    if (!viewerRef.current) return;
 
-            // VISIBILITY FIX: depthTest: false + Lift Z
-            const geometry = new THREE.BoxGeometry(length, thickness, 0.5);
-            const material = new THREE.MeshBasicMaterial({
-                color: 0x0000FF,
-                opacity: 0.5,
-                transparent: true,
-                depthTest: false
-            });
+    const dx = p2.x - p1.x;
+    const dy = p2.y - p1.y;
+    const length = Math.sqrt(dx * dx + dy * dy);
+    const angle = Math.atan2(dy, dx);
 
-            const mesh = new THREE.Mesh(geometry, material);
-            const midX = (p1.x + p2.x) / 2;
-            const midY = (p1.y + p2.y) / 2;
+    // --- CRITICAL FIX: MUST BE DIVISION ( / ) ---
+    // Real World Length = Viewer Units * Scale Factor
+    // Therefore: Viewer Units = Real World Length / Scale Factor
+    const viewerThickness = thickness / scaleFactor; 
 
-            // Lift Z by 0.5 to prevent Z-fighting
-            mesh.position.set(midX, midY, (p1.z + p2.z) / 2 + 0.5);
+    const geometry = new THREE.BoxGeometry(length, viewerThickness, 0.5);
+    const material = new THREE.MeshBasicMaterial({
+        color: 0x0000FF,
+        opacity: 0.5,
+        transparent: true,
+        depthTest: false 
+    });
 
-            const angle = Math.atan2(dy, dx);
-            mesh.rotation.z = angle;
+    const mesh = new THREE.Mesh(geometry, material);
+    const midX = (p1.x + p2.x) / 2;
+    const midY = (p1.y + p2.y) / 2;
+    const midZ = (p1.z + p2.z) / 2 + 0.5;
 
-            let offset = 0;
-            if (justification === 'LEFT') offset = thickness / 2;
-            if (justification === 'RIGHT') offset = -thickness / 2;
+    let offset = 0;
+    if (justification === 'LEFT') offset = viewerThickness / 2;
+    if (justification === 'RIGHT') offset = -viewerThickness / 2;
 
-            if (offset !== 0) {
-                const perpX = -Math.sin(angle) * offset;
-                const perpY = Math.cos(angle) * offset;
-                mesh.position.x += perpX;
-                mesh.position.y += perpY;
-            }
+    const perpX = -Math.sin(angle) * offset;
+    const perpY = Math.cos(angle) * offset;
 
-            if (!viewerRef.current.overlays.hasScene('custom-scene')) {
-                viewerRef.current.overlays.addScene('custom-scene');
-            }
-            viewerRef.current.overlays.addMesh(mesh, 'custom-scene');
-            viewerRef.current.impl.invalidate(true, true, true);
-        }
+    mesh.position.set(midX + perpX, midY + perpY, midZ);
+    mesh.rotation.z = angle;
+
+    if (!viewerRef.current.overlays.hasScene('custom-scene')) {
+        viewerRef.current.overlays.addScene('custom-scene');
+    }
+    viewerRef.current.overlays.addMesh(mesh, 'custom-scene');
+    viewerRef.current.impl.invalidate(true, true, true);
+}
     }));
 
     const handleWallCreated = (p1, p2, thickness, justification) => {
@@ -106,62 +106,96 @@ const ApsViewer = forwardRef(({ urn, scaleFactor = 1 }, ref) => {
         }));
     };
 
-    // --- NEW: Delete Event Helper ---
     const handleWallDeleted = (id) => {
         window.dispatchEvent(new CustomEvent('SEMANTIC_WALL_DELETED', {
             detail: { id }
         }));
     };
-    // --------------------------------
 
+    // --- UPDATED: PREVENT DOUBLE INITIALIZATION BUG ---
     useEffect(() => {
-        if (viewerRef.current) return;
+        // Only run if URN exists
+        if (!urn) return;
 
-        const options = {
-            env: 'AutodeskProduction2',
-            api: 'streamingV2',
-            getAccessToken: async (cb) => {
-                const r = await fetch('http://localhost:3001/api/token');
-                const d = await r.json();
-                cb(d.access_token, d.expires_in);
-            }
-        };
-
-        Autodesk.Viewing.Initializer(options, () => {
+        // Helper function to build the viewer and load the document
+        const loadModel = () => {
             if (!containerRef.current) return;
 
+            // 1. CLEANUP PREVIOUS INSTANCE (Important for loading new files)
+            if (viewerRef.current) {
+                viewerRef.current.finish();
+                viewerRef.current = null;
+            }
+
+            // 2. START NEW INSTANCE
             const viewer = new Autodesk.Viewing.GuiViewer3D(containerRef.current);
             viewer.start();
             viewerRef.current = viewer;
 
+            // 3. LOAD TOOLS
             viewer.loadExtension('Autodesk.Snapping').then(() => {
-                
-                // --- UPDATE: Pass handleWallDeleted to Constructor ---
                 toolRef.current = new WallDrawingTool(
                     viewer, 
                     handleWallCreated, 
                     handleWallUpdated, 
                     handleWallDeleted 
                 );
-                // ----------------------------------------------------
-
                 viewer.toolController.registerTool(toolRef.current);
+                
                 if (!viewer.overlays.hasScene('custom-scene')) {
                     viewer.overlays.addScene('custom-scene');
                 }
             });
 
-            if (urn) {
-                Autodesk.Viewing.Document.load(`urn:${urn}`, (doc) => {
-                    viewer.loadDocumentNode(doc, doc.getRoot().getDefaultGeometry()).then(() => {
+            // 4. LOAD DOCUMENT WITH ERROR CATCHING
+            Autodesk.Viewing.Document.load(`urn:${urn}`, 
+                (doc) => {
+                    const defaultModel = doc.getRoot().getDefaultGeometry();
+                    viewer.loadDocumentNode(doc, defaultModel).then(() => {
                         viewer.setLightPreset(2);
                         viewer.setEnvMapBackground(false);
                     });
-                });
-            }
-        });
+                },
+                (errorCode, errorMsg) => {
+                    console.error(`❌ Load Error [${errorCode}]: ${errorMsg}`);
+                }
+            );
+        };
 
-        return () => { if (viewerRef.current) viewerRef.current.finish(); };
+        // CHECK IF AUTODESK IS ALREADY INITIALIZED IN THIS BROWSER TAB
+        if (window.APS_IS_INITIALIZED) {
+            // If yes, just load the new model
+            loadModel();
+        } else {
+            // If no, initialize Autodesk first, then load the model
+            const options = {
+                env: 'AutodeskProduction2',
+                api: 'streamingV2',
+                getAccessToken: async (cb) => {
+                    try {
+                        const r = await fetch('http://localhost:3001/api/token');
+                        if (!r.ok) throw new Error("Token fetch failed");
+                        const d = await r.json();
+                        cb(d.access_token, d.expires_in);
+                    } catch (err) {
+                        console.error("❌ Token Error:", err);
+                    }
+                }
+            };
+
+            Autodesk.Viewing.Initializer(options, () => {
+                window.APS_IS_INITIALIZED = true; // Set global flag so it never runs again
+                loadModel();
+            });
+        }
+
+        // 5. UNMOUNT CLEANUP
+        return () => { 
+            if (viewerRef.current) {
+                viewerRef.current.finish();
+                viewerRef.current = null;
+            }
+        };
     }, [urn]);
 
     return <div ref={containerRef} className="w-full h-full absolute top-0 left-0" />;
