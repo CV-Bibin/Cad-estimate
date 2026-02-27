@@ -24,6 +24,8 @@ const Editor = () => {
   const [isSnapping, setIsSnapping] = useState(true); 
   const [justification, setJustification] = useState('CENTER');
   const [isViewLocked, setIsViewLocked] = useState(false);
+
+  const [openingMode, setOpeningMode] = useState('DOOR');
   
   // --- NEW: CALIBRATION STATE ---
   const [isCalibrated, setIsCalibrated] = useState(false);
@@ -338,6 +340,58 @@ const Editor = () => {
           )}
         </div>
 
+
+        {/* ... (Your existing WALL tool block ends here) ... */}
+
+        {/* 🌟 NEW: OPENINGS TOOL 🌟 */}
+        <div className="relative group">
+          <button 
+            onClick={() => setActiveTool(activeTool === 'OPENINGS' ? 'NONE' : 'OPENINGS')} 
+            className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${activeTool === 'OPENINGS' ? 'bg-yellow-500 text-white shadow-lg shadow-yellow-500/30' : 'bg-slate-700 text-slate-400 hover:bg-slate-600'}`} 
+            title="Add Openings"
+          >
+            🚪
+          </button>
+
+          {/* SUB-MENU for Opening Types */}
+          {activeTool === 'OPENINGS' && (
+            <div className="absolute left-14 top-0 bg-slate-800 border border-slate-700 rounded-xl p-1 flex flex-col gap-1 shadow-2xl z-50 w-36">
+              <button 
+                onClick={() => setOpeningMode('DOOR')} 
+                className={`px-3 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest text-left transition-all ${openingMode === 'DOOR' ? 'bg-yellow-500 text-white' : 'text-slate-400 hover:bg-slate-700 hover:text-slate-200'}`}
+              >
+                🚪 Door
+              </button>
+              <button 
+                onClick={() => setOpeningMode('WINDOW')} 
+                className={`px-3 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest text-left transition-all ${openingMode === 'WINDOW' ? 'bg-yellow-500 text-white' : 'text-slate-400 hover:bg-slate-700 hover:text-slate-200'}`}
+              >
+                🪟 Window
+              </button>
+              <button 
+                onClick={() => setOpeningMode('ARCH')} 
+                className={`px-3 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest text-left transition-all ${openingMode === 'ARCH' ? 'bg-yellow-500 text-white' : 'text-slate-400 hover:bg-slate-700 hover:text-slate-200'}`}
+              >
+                🏛️ Arch
+              </button>
+              <button 
+                onClick={() => setOpeningMode('RECT_ARCH')} 
+                className={`px-3 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest text-left transition-all ${openingMode === 'RECT_ARCH' ? 'bg-yellow-500 text-white' : 'text-slate-400 hover:bg-slate-700 hover:text-slate-200'}`}
+              >
+                🔲 Rect Arch
+              </button>
+              <button 
+                onClick={() => setOpeningMode('GRILL')} 
+                className={`px-3 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest text-left transition-all ${openingMode === 'GRILL' ? 'bg-yellow-500 text-white' : 'text-slate-400 hover:bg-slate-700 hover:text-slate-200'}`}
+              >
+                ▦ Grill
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* ... (Your existing EDIT tool button is below here) ... */}
+
         <button onClick={() => setActiveTool(activeTool === 'EDIT' ? 'NONE' : 'EDIT')} className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${activeTool === 'EDIT' ? 'bg-green-500 text-white' : 'bg-slate-700 text-slate-400'}`} title="Edit Wall">✏️</button>
         <button onClick={() => setActiveTool(activeTool === 'ERASER' ? 'NONE' : 'ERASER')} className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${activeTool === 'ERASER' ? 'bg-red-500 text-white' : 'bg-slate-700 text-slate-400'}`} title="Erase Wall">✕</button>
         
@@ -368,11 +422,13 @@ const Editor = () => {
                     <div className={`w-1.5 h-1.5 rounded-full ${
                         activeTool === 'CALIBRATION' ? 'bg-purple-400 animate-pulse' : 
                         activeTool === 'WALL' ? 'bg-orange-400 animate-pulse' :
+                        activeTool === 'OPENINGS' ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30' : // 🌟 Added Yellow
                         activeTool === 'EDIT' ? 'bg-green-400 animate-pulse' :
                         activeTool === 'ERASER' ? 'bg-red-400 animate-pulse' :
                         'bg-slate-500'
                     }`}></div>
-                    {activeTool === 'CALIBRATION' ? 'PICKING POINTS...' : activeTool === 'WALL' ? 'DRAWING' : activeTool === 'EDIT' ? 'EDITING' : activeTool === 'ERASER' ? 'ERASING' : 'VIEWING'}
+                    {activeTool === 'CALIBRATION' ? 'PICKING POINTS...' : activeTool === 'WALL' ? 'DRAWING' : 
+ activeTool === 'OPENINGS' ? `PLACING ${openingMode}` : activeTool === 'EDIT' ? 'EDITING' : activeTool === 'ERASER' ? 'ERASING' : 'VIEWING'}
                 </div>
                 <div className="w-px h-4 bg-slate-700 mx-1"></div>
                 <div className={`px-3 py-1.5 rounded-full text-[10px] font-bold flex items-center gap-1.5 transition-colors ${isSnapping ? 'text-blue-300 bg-blue-500/10' : 'text-slate-600'}`}><span className="text-xs">🧲</span><span className={isSnapping ? 'opacity-100' : 'opacity-50'}>SNAP {isSnapping ? 'ON' : 'OFF'}</span></div>
