@@ -18,12 +18,13 @@ export class CalibrationTool {
     getName() { return this.names[0]; }
 
     activate() {
+        if (this.active) return;
         this.active = true;
         this.points = [];
         this.currentHitPoint = null;
         this.viewer.canvas.style.cursor = 'crosshair';
 
-        // 1. Initialize Snapper (for Green Squares/Triangles)
+        // 1. Initialize Snapper for precision picking
         const snapOptions = {
             renderSnappedGeometry: true, 
             renderSnappedTopology: true, 
@@ -38,10 +39,11 @@ export class CalibrationTool {
         if (!this.viewer.overlays.hasScene('calibration-scene')) {
             this.viewer.overlays.addScene('calibration-scene');
         }
-        console.log("🟢 CALIBRATION TOOL: Active");
+        console.log("🟢 CALIBRATION TOOL: Active. Pick First Point.");
     }
 
     deactivate() {
+        if (!this.active) return;
         this.active = false;
         this.points = [];
         this.currentHitPoint = null;
@@ -51,54 +53,50 @@ export class CalibrationTool {
             this.snapper.deactivate();
             this.snapper = null;
         }
-        this.viewer.canvas.style.cursor = 'default';
+        if (this.viewer && this.viewer.canvas) {
+            this.viewer.canvas.style.cursor = 'default';
+        }
     }
 
-    // --- 1. MOUSE MOVE: FIND & CACHE POINT ---
+    // --- MOUSE MOVE: SNAP & PREVIEW ---
     handleMouseMove(event) {
         if (!this.active) return false;
 
-        // A. Update Snapper
         if (this.snapper) {
             this.snapper.handleMouseMove(event); 
         }
 
-        // B. Calculate the Best Point
         let rawPoint = null;
-        let snapType = 'none'; // <-- NEW: Track the type of snap
+        let snapType = 'none';
 
-        // Priority 1: Snapped Point (Green Symbol)
+        // Priority 1: Snap to CAD Geometry
         if (this.snapper && this.snapper.isSnapped()) {
             const result = this.snapper.getSnapResult();
             if (result && result.geomVertex) {
                 rawPoint = result.geomVertex;
-                // In Autodesk, geomType 2 usually represents an edge/midpoint snap
                 snapType = result.geomType === 2 ? 'midpoint' : 'endpoint';
             }
         }
 
-        // Priority 2: Raw Hit (Wall/Floor) - Ignore Transparent (ignore our red dot)
+        // Priority 2: Hit Test on Objects
         if (!rawPoint) {
             const hit = this.viewer.impl.hitTest(event.canvasX, event.canvasY, true);
             if (hit) rawPoint = hit.intersectPoint;
         }
 
-        // Priority 3: Ground Plane (Only for 2nd point)
+        // Priority 3: Intersect Ground (Useful for empty plans)
         if (!rawPoint && this.points.length === 1) {
             rawPoint = this.viewer.impl.intersectGround(event.canvasX, event.canvasY);
         }
 
-        // C. Apply Ortho (If 2nd point)
+        // Ortho Lock for the second point
         if (rawPoint && this.points.length === 1) {
             rawPoint = this.applyOrtho(this.points[0], rawPoint);
         }
 
-        // D. CACHE THE POINT (Important!)
         this.currentHitPoint = rawPoint;
 
-        // E. Draw Visuals
         if (this.currentHitPoint) {
-            // <-- UPDATED: Pass snapType to the drawing function
             this.drawIndicator(this.currentHitPoint, snapType); 
             if (this.points.length === 1) {
                 this.drawTempLine(this.points[0], this.currentHitPoint);
@@ -110,75 +108,79 @@ export class CalibrationTool {
         return false; 
     }
 
-    // --- 2. CLICK: USE THE CACHED POINT ---
-    // We register both SingleClick and ButtonDown to be safe
-    handleSingleClick(event, button) { return this.handleClick(button); }
-    handleButtonDown(event, button) { return this.handleClick(button); }
-
-    handleClick(button) {
-        // Right click = Cancel
-        if (button === 2) { this.deactivate(); return true; }
-
-        console.log("🖱️ CLICK! Cached Point:", this.currentHitPoint);
-
-        // If mouse is floating in void, ignore click
-        if (!this.currentHitPoint) {
-            console.warn("⚠️ No valid point under cursor.");
+    // --- CLICK HANDLING ---
+    handleButtonDown(event, button) {
+        if (!this.active) return false;
+        
+        // Right click to cancel
+        if (button === 2) { 
+            this.deactivate(); 
             return true; 
         }
 
-        // 1. Add the Cached Point
-        // We clone it to be safe
-        const p = { x: this.currentHitPoint.x, y: this.currentHitPoint.y, z: this.currentHitPoint.z };
-        this.points.push(p);
+        // Left click to pick point
+        if (button === 0) {
+            if (!this.currentHitPoint) {
+                console.warn("⚠️ No valid point detected.");
+                return true; 
+            }
 
-        // 2. Check Completion
-        if (this.points.length === 2) {
-            const dx = this.points[1].x - this.points[0].x;
-            const dy = this.points[1].y - this.points[0].y;
-            const dist = Math.sqrt(dx*dx + dy*dy);
+            // Capture a deep copy of the coordinates
+            const p = new THREE.Vector3(
+                this.currentHitPoint.x, 
+                this.currentHitPoint.y, 
+                this.currentHitPoint.z
+            );
             
-            this.clearOverlays();
-            this.onFinished(dist); // Send Distance to Editor
-            this.deactivate();
+            this.points.push(p);
+
+            if (this.points.length === 1) {
+                console.log("📍 Point 1 Picked. Pick Point 2.");
+            }
+
+            if (this.points.length === 2) {
+                const dx = this.points[1].x - this.points[0].x;
+                const dy = this.points[1].y - this.points[0].y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                
+                console.log("📏 Calibration Finished. Units:", dist);
+                this.onFinished(dist); // Send to Editor.js Modal
+                this.deactivate();
+            }
+            return true;
         }
-        
-        return true; // Consume event
+        return false;
     }
 
-    // --- HELPERS ---
     applyOrtho(p1, p2) {
         const dx = Math.abs(p2.x - p1.x);
         const dy = Math.abs(p2.y - p1.y);
-        const p = { ...p2 }; 
-        if (dx > dy) p.y = p1.y; else p.x = p1.x; // Snap Ortho
-        p.z = p1.z; // Keep Flat
+        const p = p2.clone();
+        if (dx > dy) p.y = p1.y; else p.x = p1.x;
+        p.z = p1.z; 
         return p;
     }
 
-    // --- UPDATED: OSNAP GEOMETRY LOGIC ---
     drawIndicator(pos, snapType) {
         if (this.indicator) this.viewer.overlays.removeMesh(this.indicator, 'calibration-scene');
         
         let geom;
-        let color = 0xFF0000; // Default Red
+        let color = 0xFF00FF; // Default Magenta
 
         if (snapType === 'midpoint') {
-            geom = new THREE.CylinderGeometry(0.04, 0.04, 0.01, 3); // 3-sided cylinder = Triangle
-            geom.rotateX(Math.PI / 2); // Lay the triangle flat
-            color = 0x00FFFF; // Cyan
+            geom = new THREE.CylinderGeometry(0.04, 0.04, 0.01, 3);
+            geom.rotateX(Math.PI / 2);
+            color = 0x00FFFF;
         } else if (snapType === 'endpoint') {
-            geom = new THREE.BoxGeometry(0.06, 0.06, 0.01); // Square Box
-            color = 0x00FF00; // Green
+            geom = new THREE.BoxGeometry(0.06, 0.06, 0.01);
+            color = 0x00FF00;
         } else {
-            geom = new THREE.SphereGeometry(0.02, 8, 8); // Standard tiny red dot
+            geom = new THREE.SphereGeometry(0.02, 8, 8);
         }
         
-        const mat = new THREE.MeshBasicMaterial({ color: color, opacity: 0.8, transparent: true, depthTest: false });
+        const mat = new THREE.MeshBasicMaterial({ color: color, depthTest: false });
         this.indicator = new THREE.Mesh(geom, mat);
         this.indicator.position.copy(pos);
-        
-        // CRITICAL: Make shape invisible to clicks
         this.indicator.raycast = () => {}; 
 
         this.viewer.overlays.addMesh(this.indicator, 'calibration-scene');
@@ -188,11 +190,12 @@ export class CalibrationTool {
     drawTempLine(p1, p2) {
         if (this.tempLine) this.viewer.overlays.removeMesh(this.tempLine, 'calibration-scene');
         
-        const geom = new THREE.Geometry();
-        geom.vertices.push(new THREE.Vector3(p1.x, p1.y, p1.z));
-        geom.vertices.push(new THREE.Vector3(p2.x, p2.y, p2.z));
-        const mat = new THREE.LineBasicMaterial({ color: 0xFF00FF, linewidth: 2, depthTest: false });
-        this.tempLine = new THREE.Line(geom, mat);
+        const geometry = new THREE.Geometry();
+        geometry.vertices.push(new THREE.Vector3(p1.x, p1.y, p1.z));
+        geometry.vertices.push(new THREE.Vector3(p2.x, p2.y, p2.z));
+        
+        const material = new THREE.LineBasicMaterial({ color: 0xFF00FF, linewidth: 2, depthTest: false });
+        this.tempLine = new THREE.Line(geometry, material);
         this.tempLine.raycast = () => {}; 
 
         this.viewer.overlays.addMesh(this.tempLine, 'calibration-scene');

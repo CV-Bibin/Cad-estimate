@@ -169,10 +169,35 @@ const Sidebar = ({
                 </div>
                 
                 {/* Wall Footer */}
-                <div className="px-3 py-1 bg-slate-50 border-t border-slate-100 flex justify-between items-center text-[9px]">
-                    <span className="font-mono text-slate-500">📏 {wall.length.toFixed(2)}m</span>
-                    <span className="font-bold text-slate-400 uppercase">{wall.justification}</span>
-                </div>
+               <div className="px-3 py-2 bg-slate-50/80 border-t border-slate-100 flex justify-between items-end">
+    
+    {/* 📏 MEDIUM LENGTH BADGE */}
+    <div className="flex flex-col">
+        <span className="text-[8px] font-bold text-slate-400 uppercase tracking-wider mb-0.5 ml-0.5">
+            Total Length
+        </span>
+        <div className="bg-blue-50/80 text-blue-700 px-2 py-1 rounded border border-blue-100 flex items-center gap-1.5 shadow-[0_1px_2px_rgba(0,0,0,0.02)]">
+            <span className="text-blue-400 text-xs grayscale-[30%]">📏</span>
+            <div className="flex items-baseline">
+                <span className="text-sm font-black tracking-tight leading-none">
+                    {wall.length.toFixed(2)}
+                </span>
+                <span className="text-[9px] font-bold ml-0.5 opacity-60">m</span>
+            </div>
+        </div>
+    </div>
+
+    {/* ↔️ MEDIUM ALIGN BADGE */}
+    <div className="flex flex-col items-end">
+        <span className="text-[8px] font-bold text-slate-400 uppercase tracking-wider mb-0.5 mr-0.5">
+            Align
+        </span>
+        <div className="text-[9px] font-bold uppercase tracking-widest text-slate-500 bg-white px-2 py-1 rounded border border-slate-200 shadow-[0_1px_2px_rgba(0,0,0,0.02)]">
+            {wall.justification}
+        </div>
+    </div>
+
+</div>
                 </div>
             ))
             )}

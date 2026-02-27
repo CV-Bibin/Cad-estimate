@@ -5,50 +5,129 @@ export default class WallToolVisuals {
     constructor(viewer) {
         this.viewer = viewer;
         this.tempMesh = null;
-        this.eraserMesh = null; // NEW: The Red Highlight
+        this.eraserMesh = null; // The Red Highlight
+        this.listHighlightMesh = null; // NEW: The Blue List Highlight
         this.visualHandles = [];
 
         // Geometries/Materials
-       this.handleGeo = new THREE.BoxGeometry(0.08, 0.08, 0.01);
+        this.handleGeo = new THREE.BoxGeometry(0.08, 0.08, 0.01);
         this.handleMatNormal = new THREE.MeshBasicMaterial({ color: 0x00FF00, transparent: true, opacity: 0.8, depthTest: false });
         this.handleMatHover = new THREE.MeshBasicMaterial({ color: 0xFF1493, transparent: false, opacity: 1.0, depthTest: false });
         this.tempWallMat = new THREE.MeshBasicMaterial({ color: 0xFFA500, opacity: 0.6, transparent: true, depthTest: false });
         
-        // NEW: Eraser Material (Red)
+        // Eraser Material (Red)
         this.eraserMat = new THREE.MeshBasicMaterial({ color: 0xFF0000, opacity: 0.5, transparent: true, depthTest: false });
+        
+        // NEW: List Highlight Material (Blue)
+        this.listHighlightMat = new THREE.MeshBasicMaterial({ color: 0x00A8FF, opacity: 0.5, transparent: true, depthTest: false });
 
         if (!this.viewer.overlays.hasScene('custom-scene')) {
             this.viewer.overlays.addScene('custom-scene');
         }
     }
 
-    // --- ERASER HIGHLIGHT ---
-    showEraserHighlight(wall) {
-        this.clearEraserHighlight(); // Clear previous
-        
-        if (!wall) return;
+    // --- NEW: SIDEBAR LIST HOVER HIGHLIGHT (BLUE GLOW) ---
+    showListHighlight(wall, scaledThickness) {
+        this.clearListHighlight();
 
-        const p1 = wall.points.p1;
-        const p2 = wall.points.p2;
+        if (!wall || !wall.points || !wall.points.p1 || !wall.points.p2) return;
+
+        const baseThick = scaledThickness || wall.thickness;
+
+        const { p1, p2 } = wall.points;
         const dx = p2.x - p1.x;
         const dy = p2.y - p1.y;
-        const len = Math.sqrt(dx * dx + dy * dy);
+        const length = Math.sqrt(dx * dx + dy * dy);
+        const angle = Math.atan2(dy, dx);
 
-        // Make it slightly thicker than the real wall so it's visible
-        const geometry = new THREE.BoxGeometry(len, wall.thickness + 0.1, 1.0); 
-        this.eraserMesh = new THREE.Mesh(geometry, this.eraserMat);
+        // 20% wider for a nice blue selection glow
+        const highlightThickness = baseThick * 1.20; 
+
+        const geom = new THREE.PlaneGeometry(length, highlightThickness);
+        this.listHighlightMesh = new THREE.Mesh(geom, this.listHighlightMat);
 
         const midX = (p1.x + p2.x) / 2;
         const midY = (p1.y + p2.y) / 2;
+
+        let offsetX = 0;
+        let offsetY = 0;
         
-        // Lift Z even higher (+1.5) so it covers everything
-        this.eraserMesh.position.set(midX, midY, p1.z + 1.5); 
-        this.eraserMesh.rotation.z = Math.atan2(dy, dx);
+        if (wall.justification === 'LEFT') {
+            offsetX = (baseThick / 2) * Math.sin(angle);
+            offsetY = -(baseThick / 2) * Math.cos(angle);
+        } else if (wall.justification === 'RIGHT') {
+            offsetX = -(baseThick / 2) * Math.sin(angle);
+            offsetY = (baseThick / 2) * Math.cos(angle);
+        }
+
+        this.listHighlightMesh.position.set(midX + offsetX, midY + offsetY, p1.z + 0.05); 
+        this.listHighlightMesh.rotation.z = angle;
+        this.listHighlightMesh.raycast = () => {};
+
+        this.viewer.overlays.addMesh(this.listHighlightMesh, 'custom-scene');
+        this.viewer.impl.invalidate(true, true, true);
+    }
+
+    clearListHighlight() {
+        if (this.listHighlightMesh) {
+            this.viewer.overlays.removeMesh(this.listHighlightMesh, 'custom-scene');
+            this.listHighlightMesh = null;
+            this.viewer.impl.invalidate(true, true, true);
+        }
+    }
+
+    // --- ERASER HIGHLIGHT (RED GLOW) ---
+    showEraserHighlight(wall, scaledThickness) {
+        this.clearEraserHighlight();
+
+        if (!wall || !wall.points || !wall.points.p1 || !wall.points.p2) return;
+
+        // Fallback just in case scaledThickness is missing
+        const baseThick = scaledThickness || wall.thickness;
+
+        const { p1, p2 } = wall.points;
+        const dx = p2.x - p1.x;
+        const dy = p2.y - p1.y;
+        const length = Math.sqrt(dx * dx + dy * dy);
+        const angle = Math.atan2(dy, dx);
+
+        // PERFECT MATH: Exactly 15% wider than the SCALED thickness
+        const highlightThickness = baseThick * 1.15; 
+
+        const geom = new THREE.PlaneGeometry(length, highlightThickness);
+        const mat = new THREE.MeshBasicMaterial({ 
+            color: 0xff0000, 
+            transparent: true, 
+            opacity: 0.4, // Soft red
+            depthTest: false 
+        });
+
+        this.eraserMesh = new THREE.Mesh(geom, mat);
+
+        const midX = (p1.x + p2.x) / 2;
+        const midY = (p1.y + p2.y) / 2;
+
+        let offsetX = 0;
+        let offsetY = 0;
+        
+        // PERFECT OFFSET: Uses the SCALED thickness to shift the box
+        if (wall.justification === 'LEFT') {
+            offsetX = (baseThick / 2) * Math.sin(angle);
+            offsetY = -(baseThick / 2) * Math.cos(angle);
+        } else if (wall.justification === 'RIGHT') {
+            offsetX = -(baseThick / 2) * Math.sin(angle);
+            offsetY = (baseThick / 2) * Math.cos(angle);
+        }
+
+        this.eraserMesh.position.set(midX + offsetX, midY + offsetY, p1.z + 0.05); 
+        this.eraserMesh.rotation.z = angle;
+
+        this.eraserMesh.raycast = () => {};
 
         this.viewer.overlays.addMesh(this.eraserMesh, 'custom-scene');
         this.viewer.impl.invalidate(true, true, true);
     }
-
+    
     clearEraserHighlight() {
         if (this.eraserMesh) {
             this.viewer.overlays.removeMesh(this.eraserMesh, 'custom-scene');
@@ -57,9 +136,6 @@ export default class WallToolVisuals {
         }
     }
 
-    // ... (Keep existing updateGhostWall, refreshHandles, clearHandles, hitTestHandlesScreenSpace EXACTLY as they were) ...
-    // Note: I am omitting them here for brevity, but DO NOT DELETE THEM from your file.
-    
     // --- GHOST WALL ---
     updateGhostWall(p1, p2, thickness, justification) {
         this.clearGhostWall();

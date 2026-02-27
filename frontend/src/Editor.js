@@ -6,16 +6,20 @@ import Sidebar from './components/Sidebar';
 // --- 1. IMPORT TOOLS & MODAL ---
 import { CalibrationTool } from './tools/CalibrationTool';
 import CalibrationModal from './components/CalibrationModal';
+import PickLineModal from './components/PickLineModal';
 
 const Editor = () => {
   const { urn } = useParams();
   const navigate = useNavigate();
   const viewerRef = useRef();
+  const [pickData, setPickData] = useState(null);
+  
   
   // STATE
   const [walls, setWalls] = useState([]);
   const [scaleFactor, setScaleFactor] = useState(1);
   const [activeTool, setActiveTool] = useState('NONE'); 
+  const [wallMode, setWallMode] = useState('MANUAL'); // NEW: For Pick Line toggle
   const [ortho, setOrtho] = useState(false);
   const [isSnapping, setIsSnapping] = useState(true); 
   const [justification, setJustification] = useState('CENTER');
@@ -53,6 +57,18 @@ const Editor = () => {
       setWalls(nextWalls); // Fast forward walls
   }, [future, walls]);
 
+
+
+  useEffect(() => {
+    const handlePickRequest = (e) => {
+        // This opens the modal by setting the detected line data
+        setPickData(e.detail); 
+    };
+
+    window.addEventListener('PICK_LINE_REQUESTED', handlePickRequest);
+    return () => window.removeEventListener('PICK_LINE_REQUESTED', handlePickRequest);
+}, []);
+
   // --- NEW: UNDO / REDO KEYBOARD SHORTCUTS ---
   useEffect(() => {
       const handleKeyDown = (e) => {
@@ -76,6 +92,30 @@ const Editor = () => {
       setIsModalOpen(true); // Open the popup
       setActiveTool('NONE'); // Reset tool
   };
+
+
+  const handleConfirmPickWall = () => {
+    if (!pickData) return;
+
+    // Manually trigger the wall creation logic using the confirmed points
+    const newWall = {
+        id: Date.now() + Math.random(),
+        length: pickData.length, // Already scaled in the tool
+        thickness: thickness, 
+        justification: justification,
+        height: defaultHeight, 
+        points: { p1: pickData.p1, p2: pickData.p2 }
+    };
+
+    setWalls(prev => {
+        setHistory(h => [...h, prev]); // Save to undo history
+        setFuture([]); 
+        return [...prev, newWall];
+    });
+
+    // Close the modal
+    setPickData(null);
+};
 
   // --- UPDATED: CONFIRM CALIBRATION (Called by Modal) ---
   const handleConfirmCalibration = (realMeters) => {
@@ -155,6 +195,16 @@ const Editor = () => {
     return () => window.removeEventListener('SEMANTIC_WALL_CREATED', handleWall);
   }, [scaleFactor, thickness, defaultHeight]);
 
+
+  useEffect(() => {
+    // ... your existing tool registration code ...
+    
+    // NEW: Auto-close PickLineModal if the tool changes
+    if (activeTool !== 'WALL') {
+        setPickData(null);
+    }
+}, [activeTool]);
+
   // --- WALL UPDATE & DELETE WITH HISTORY SAVING ---
   useEffect(() => {
     const handleUpdate = (event) => {
@@ -199,11 +249,13 @@ const Editor = () => {
           viewerRef.current.updateSettings({
               isActive: activeTool !== 'NONE',
               mode: activeTool === 'WALL' ? 'DRAW' : activeTool, 
+              wallMode, // PASSING PICK/MANUAL MODE
               thickness, justification, isOrtho: ortho, isSnapping, walls,
-              scaleFactor
+              scaleFactor,
+              hoveredListWallId: hoveredWallId
           });
       }
-  }, [activeTool, thickness, justification, ortho, isSnapping, walls, scaleFactor]);
+  }, [activeTool, wallMode, thickness, justification, ortho, isSnapping, walls, scaleFactor, hoveredWallId]);
 
   useEffect(() => {
       if (viewerRef.current && viewerRef.current.highlightWall) {
@@ -236,7 +288,7 @@ const Editor = () => {
   return (
     <div className="flex h-screen bg-slate-900 font-sans overflow-hidden">
       
-      {/* 1. ADD MODAL COMPONENT */}
+      {/* 1. MODAL COMPONENT */}
       <CalibrationModal 
           isOpen={isModalOpen} 
           onClose={() => setIsModalOpen(false)} 
@@ -244,20 +296,56 @@ const Editor = () => {
           measuredValue={tempMeasuredValue}
       />
 
+      <PickLineModal 
+          isOpen={!!pickData} 
+          data={pickData} 
+          onConfirm={handleConfirmPickWall} 
+          onCancel={() => setPickData(null)}
+          defaultThickness={thickness}
+          defaultHeight={defaultHeight}
+      />
+
       {/* 2. TOOLBAR */}
-     <div 
-  className={`absolute left-4 top-20 bottom-20 w-16 bg-slate-800 rounded-2xl border border-slate-700 shadow-2xl z-30 flex flex-col items-center py-4 gap-4 transition-all duration-300 
-    ${!isCalibrated ? 'opacity-40 pointer-events-none grayscale' : 'opacity-100 pointer-events-auto'}`}
->
-  <button onClick={() => setActiveTool(activeTool === 'WALL' ? 'NONE' : 'WALL')} className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${activeTool === 'WALL' ? 'bg-orange-500 text-white' : 'bg-slate-700 text-slate-400'}`} title="Draw Wall">🧱</button>
-  <button onClick={() => setActiveTool(activeTool === 'EDIT' ? 'NONE' : 'EDIT')} className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${activeTool === 'EDIT' ? 'bg-green-500 text-white' : 'bg-slate-700 text-slate-400'}`} title="Edit Wall">✏️</button>
-  <button onClick={() => setActiveTool(activeTool === 'ERASER' ? 'NONE' : 'ERASER')} className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${activeTool === 'ERASER' ? 'bg-red-500 text-white' : 'bg-slate-700 text-slate-400'}`} title="Erase Wall">✕</button>
-  <div className="w-8 h-px bg-slate-600 my-1"></div>
+      <div 
+        className={`absolute left-4 top-20 bottom-20 w-16 bg-slate-800 rounded-2xl border border-slate-700 shadow-2xl z-30 flex flex-col items-center py-4 gap-4 transition-all duration-300 
+          ${!isCalibrated ? 'opacity-40 pointer-events-none grayscale' : 'opacity-100 pointer-events-auto'}`}
+      >
+        <div className="relative group">
+          <button 
+            onClick={() => setActiveTool(activeTool === 'WALL' ? 'NONE' : 'WALL')} 
+            className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${activeTool === 'WALL' ? 'bg-orange-500 text-white' : 'bg-slate-700 text-slate-400'}`} 
+            title="Draw Wall"
+          >
+            🧱
+          </button>
+
+          {/* SUB-MENU for Wall Drawing Modes */}
+          {activeTool === 'WALL' && (
+            <div className="absolute left-14 top-0 bg-slate-800 border border-slate-700 rounded-xl p-1 flex gap-1 shadow-2xl z-50">
+              <button 
+                onClick={() => setWallMode('MANUAL')}
+                className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-tighter transition-all ${wallMode === 'MANUAL' ? 'bg-orange-500 text-white' : 'text-slate-400 hover:bg-slate-700'}`}
+              >
+                ✏️ Manual
+              </button>
+              <button 
+                onClick={() => setWallMode('PICK')}
+                className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-tighter transition-all ${wallMode === 'PICK' ? 'bg-blue-500 text-white' : 'text-slate-400 hover:bg-slate-700'}`}
+              >
+                🖱️ Pick Line
+              </button>
+            </div>
+          )}
+        </div>
+
+        <button onClick={() => setActiveTool(activeTool === 'EDIT' ? 'NONE' : 'EDIT')} className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${activeTool === 'EDIT' ? 'bg-green-500 text-white' : 'bg-slate-700 text-slate-400'}`} title="Edit Wall">✏️</button>
+        <button onClick={() => setActiveTool(activeTool === 'ERASER' ? 'NONE' : 'ERASER')} className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${activeTool === 'ERASER' ? 'bg-red-500 text-white' : 'bg-slate-700 text-slate-400'}`} title="Erase Wall">✕</button>
         
-        {/* --- NEW: UNDO / REDO BUTTONS --- */}
+        <div className="w-8 h-px bg-slate-600 my-1"></div>
+        
+        {/* UNDO / REDO BUTTONS */}
         <button onClick={handleUndo} disabled={history.length === 0} className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all text-xl ${history.length === 0 ? 'bg-slate-800 text-slate-600 cursor-not-allowed' : 'bg-slate-700 text-white hover:bg-slate-600 active:scale-95'}`} title="Undo (Ctrl+Z)">↩️</button>
         <button onClick={handleRedo} disabled={future.length === 0} className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all text-xl ${future.length === 0 ? 'bg-slate-800 text-slate-600 cursor-not-allowed' : 'bg-slate-700 text-white hover:bg-slate-600 active:scale-95'}`} title="Redo (Ctrl+Y)">↪️</button>
-        {/* -------------------------------- */}
 
         <div className="w-8 h-px bg-slate-600 my-1"></div>
 
@@ -294,7 +382,7 @@ const Editor = () => {
          <ApsViewer ref={viewerRef} urn={decodeURIComponent(urn)} scaleFactor={scaleFactor} isViewLocked={isViewLocked} />
       </div>
 
-      {/* 4. SIDEBAR - PASS LOCK STATES */}
+      {/* 4. SIDEBAR */}
       <Sidebar 
         walls={walls} 
         deleteWall={deleteWall} 
@@ -304,16 +392,12 @@ const Editor = () => {
         globalThickness={thickness} setGlobalThickness={setThickness}
         globalHeight={defaultHeight} setGlobalHeight={setDefaultHeight}
         ortho={ortho} setOrtho={setOrtho} isSnapping={isSnapping} setIsSnapping={setIsSnapping}
-        
-        scaleFactor={scaleFactor} 
-        setScaleFactor={setScaleFactor}
-        
+        scaleFactor={scaleFactor} setScaleFactor={setScaleFactor}
         isCalibrated={isCalibrated} 
         onStartCalibration={() => setActiveTool('CALIBRATION')}
         onUnlockScale={handleUnlockScale}
-
         isViewLocked={isViewLocked}
-    setIsViewLocked={setIsViewLocked}
+        setIsViewLocked={setIsViewLocked}
       />
     </div>
   );
