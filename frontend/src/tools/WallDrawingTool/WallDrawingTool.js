@@ -4,6 +4,7 @@ import { WallToolMath } from './WallToolMath';
 import { DrawingHandler } from './DrawingHandler';
 import { EditingHandler } from './EditingHandler';
 import { EraserHandler } from './EraserHandler';
+import { OpeningHandler } from './OpeningHandler';
 
 export default class WallDrawingTool {
     constructor(viewer, onWallCreated, onWallUpdated, onWallDeleted) {
@@ -12,11 +13,12 @@ export default class WallDrawingTool {
         this.active = false;
         this.settings = { wallMode: 'MANUAL', scaleFactor: 1 };
         this.visuals = new WallToolVisuals(viewer);
-        
+
         // Mode Handlers
         this.drawing = new DrawingHandler(this);
         this.editing = new EditingHandler(this);
         this.eraser = new EraserHandler(this);
+        this.opening = new OpeningHandler(this);
 
         // State & Callbacks
         this.onWallCreated = onWallCreated;
@@ -30,7 +32,7 @@ export default class WallDrawingTool {
         this.handlePlacement = 'CENTER';
         this.isOrtho = false;
         this.isSnapping = true;
-        
+
         this.snapper = null;
         this.osnapMesh = null;
         this.selectedHandle = null;
@@ -67,7 +69,7 @@ export default class WallDrawingTool {
             if (this.mode === 'EDIT') this.visuals.refreshHandles(this.walls, this.handlePlacement);
         }
 
-        // --- 🌟 NEW: SIDEBAR HOVER HIGHLIGHT LOGIC ---
+        // --- SIDEBAR HOVER HIGHLIGHT LOGIC ---
         if (settings.hoveredListWallId !== undefined) {
             if (settings.hoveredListWallId === null) {
                 this.visuals.clearListHighlight();
@@ -120,11 +122,17 @@ export default class WallDrawingTool {
             this.viewer.toolController.deactivateTool(this.snapper.getName());
             this.snapper = null;
         }
-        this.viewer.canvas.style.cursor = 'default';
+        
+        // 🌟 FIX 1: Safety check added here!
+        if (this.viewer && this.viewer.canvas) {
+            this.viewer.canvas.style.cursor = 'default';
+        }
     }
 
     updateCursor() {
-        if (!this.active) return;
+        // 🌟 FIX 2: Safety check added here!
+        if (!this.active || !this.viewer || !this.viewer.canvas) return; 
+
         const canvas = this.viewer.canvas;
         if (this.mode === 'DRAW') canvas.style.cursor = 'crosshair';
         else if (this.mode === 'ERASER') canvas.style.cursor = 'not-allowed';
@@ -158,24 +166,42 @@ export default class WallDrawingTool {
         return this.viewer.impl.intersectGround(event.canvasX, event.canvasY);
     }
 
-    drawOsnapIndicator(pos, snapType) {
+   drawOsnapIndicator(pos, snapType) {
         if (this.osnapMesh) {
             this.viewer.overlays.removeMesh(this.osnapMesh, 'custom-scene');
             this.osnapMesh = null;
         }
         if (!pos || snapType === 'none') return;
 
-        const color = snapType === 'midpoint' ? 0x00FFFF : 0x00FF00;
-        let geom = snapType === 'midpoint' 
-            ? new THREE.CylinderGeometry(0.04, 0.04, 0.01, 3) 
-            : new THREE.BoxGeometry(0.06, 0.06, 0.01);
+        // --- NEW: Calculate Dynamic Scale based on Zoom Level ---
+        const camera = this.viewer.impl.camera;
+        const distance = camera.position.distanceTo(pos);
         
+        // This multiplier keeps the icon a consistent visual size. 
+        // Tweak 0.005 up or down if you want it globally larger or smaller.
+        const dynamicSize = distance * 0.005; 
+
+        const color = snapType === 'midpoint' ? 0x00FFFF : 0x00FF00;
+        
+        // Apply the dynamic size to the geometries
+        let geom = snapType === 'midpoint'
+            ? new THREE.CylinderGeometry(dynamicSize, dynamicSize, 0.01, 3)
+            : new THREE.BoxGeometry(dynamicSize * 1.5, dynamicSize * 1.5, 0.01);
+
         if (snapType === 'midpoint') geom.rotateX(Math.PI / 2);
 
-        const mat = new THREE.MeshBasicMaterial({ color, depthTest: false, transparent: true, opacity: 0.8 });
+        // Keep it slightly transparent so you can see the exact intersection
+        const mat = new THREE.MeshBasicMaterial({ 
+            color, 
+            depthTest: false, 
+            transparent: true, 
+            opacity: 0.6 
+        });
+
         this.osnapMesh = new THREE.Mesh(geom, mat);
         this.osnapMesh.position.copy(pos);
         this.osnapMesh.raycast = () => { };
+        
         this.viewer.overlays.addMesh(this.osnapMesh, 'custom-scene');
         this.viewer.impl.invalidate(true, true, true);
     }
@@ -183,6 +209,7 @@ export default class WallDrawingTool {
     // --- DELEGATION ---
     handleButtonDown(event, button) {
         if (button !== 0) return false;
+        if (this.opening.handleDown(event)) return true;
         if (this.drawing.handleDown(event)) return true;
         if (this.editing.handleDown(event)) return true;
         if (this.eraser.handleDown(event)) return true;
@@ -199,6 +226,7 @@ export default class WallDrawingTool {
         }
         this.drawOsnapIndicator(this.getBestPoint(event), snapType);
 
+        if (this.opening.handleMove(event)) return true;
         if (this.drawing.handleMove(event)) return true;
         if (this.editing.handleMove(event)) return true;
         if (this.eraser.handleMove(event)) return true;
@@ -207,8 +235,27 @@ export default class WallDrawingTool {
 
     handleButtonUp(event, button) {
         if (button !== 0) return false;
+        if (this.opening.handleUp(event)) return true;
         if (this.drawing.handleUp(event)) return true;
         if (this.editing.handleUp(event)) return true;
+        return false;
+    }
+
+  handleSingleClick(event, button) {
+        if (button !== 0) return false; // Only respond to left clicks
+        
+        // 1. Pass the click to any handler that explicitly needs it
+        if (this.opening.handleSingleClick && this.opening.handleSingleClick(event, button)) return true;
+        if (this.drawing.handleSingleClick && this.drawing.handleSingleClick(event, button)) return true;
+        if (this.editing.handleSingleClick && this.editing.handleSingleClick(event, button)) return true;
+        if (this.eraser.handleSingleClick && this.eraser.handleSingleClick(event, button)) return true;
+        
+        // 2. THE SHIELD: If our tool is active in ANY mode, consume the click 
+        // to block Autodesk's default "select and zoom" camera jump.
+        if (this.mode !== 'NONE' && this.mode !== 'VIEW') {
+            return true; 
+        }
+        
         return false;
     }
 

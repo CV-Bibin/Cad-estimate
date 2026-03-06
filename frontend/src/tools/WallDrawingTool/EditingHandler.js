@@ -56,11 +56,15 @@ export class EditingHandler {
         if (hit !== this.tool.hoveredHandle) {
             if (this.tool.hoveredHandle) {
                 this.tool.hoveredHandle.material = this.tool.visuals.handleMatNormal;
-                this.tool.hoveredHandle.scale.set(1, 1, 1); 
+                // Return to original dynamic scale when mouse leaves
+                const baseScale = this.tool.hoveredHandle.userData.baseScale || 1;
+                this.tool.hoveredHandle.scale.set(baseScale, baseScale, baseScale); 
             }
             if (hit) {
                 hit.material = this.tool.visuals.handleMatHover;
-                hit.scale.set(1.6, 1.6, 1.6); 
+                // Pop out by 1.5x the dynamic scale when hovered
+                const baseScale = hit.userData.baseScale || 1;
+                hit.scale.set(baseScale * 1.5, baseScale * 1.5, baseScale * 1.5); 
             }
             this.tool.hoveredHandle = hit;
             this.tool.updateCursor();
@@ -71,11 +75,15 @@ export class EditingHandler {
 
     handleUp(event) {
         if (this.tool.mode === 'EDIT' && this.tool.selectedHandle) {
-            const { wallId, pointType } = this.tool.selectedHandle.userData;
+            const { wallId, pointType, baseScale } = this.tool.selectedHandle.userData;
             this.tool.onWallUpdated(wallId, pointType, this.tool.selectedHandle.position);
             this.tool.visuals.clearGhostWall();
-            this.tool.selectedHandle.scale.set(1, 1, 1);
+            
+            // Reset scale upon release
+            const resetScale = baseScale || 1;
+            this.tool.selectedHandle.scale.set(resetScale, resetScale, resetScale);
             this.tool.selectedHandle.material = this.tool.visuals.handleMatNormal;
+            
             this.tool.selectedHandle = null;
             this.tool.updateCursor();
             return true;

@@ -10,8 +10,8 @@ export default class WallToolVisuals {
         this.visualHandles = [];
 
         // Geometries/Materials
-        this.handleGeo = new THREE.BoxGeometry(0.08, 0.08, 0.01);
-        this.handleMatNormal = new THREE.MeshBasicMaterial({ color: 0x00FF00, transparent: true, opacity: 0.8, depthTest: false });
+        this.handleGeo = new THREE.BoxGeometry(0.12, 0.12, 0.01);
+        this.handleMatNormal = new THREE.MeshBasicMaterial({ color: 0x00FF00, transparent: true, opacity: 0.7, depthTest: false });
         this.handleMatHover = new THREE.MeshBasicMaterial({ color: 0xFF1493, transparent: false, opacity: 1.0, depthTest: false });
         this.tempWallMat = new THREE.MeshBasicMaterial({ color: 0xFFA500, opacity: 0.6, transparent: true, depthTest: false });
         
@@ -178,11 +178,14 @@ export default class WallToolVisuals {
     }
 
     // --- HANDLES ---
-    refreshHandles(walls, handlePlacement) {
+   refreshHandles(walls, handlePlacement) {
         this.clearHandles();
         if (!walls) return;
 
+        const camera = this.viewer.impl.camera;
+
         walls.forEach(w => {
+            // We loop through both Point 1 and Point 2
             ['p1', 'p2'].forEach(t => {
                 let offsetDist = 0;
                 if (handlePlacement === 'INNER') offsetDist = w.thickness / 2;
@@ -190,11 +193,27 @@ export default class WallToolVisuals {
 
                 const offset = WallToolMath.getOffset(w.points.p1, w.points.p2, offsetDist);
                 const basePos = w.points[t];
+                
+                const posVector = new THREE.Vector3(basePos.x + offset.x, basePos.y + offset.y, basePos.z + 1.0);
+                
+                // 1. Calculate distance for THIS specific point
+                const distance = camera.position.distanceTo(posVector);
+                
+                // 2. Apply the large multiplier (0.15) to both
+                const dynamicScale = distance * 0.15; 
 
                 const v = new THREE.Mesh(this.handleGeo, this.handleMatNormal);
-                // Lift Z + 1.0
-                v.position.set(basePos.x + offset.x, basePos.y + offset.y, basePos.z + 1.0);
-                v.userData = { wallId: w.id, pointType: t };
+                v.position.copy(posVector);
+                
+                // 3. Set the scale for the mesh
+                v.scale.set(dynamicScale, dynamicScale, dynamicScale);
+                
+                // 4. CRITICAL: Save the baseScale so EditingHandler can use it for hover effects
+                v.userData = { 
+                    wallId: w.id, 
+                    pointType: t, 
+                    baseScale: dynamicScale 
+                };
 
                 this.viewer.overlays.addMesh(v, 'custom-scene');
                 this.visualHandles.push(v);
@@ -211,7 +230,7 @@ export default class WallToolVisuals {
 
     // --- HIT TEST ---
     hitTestHandlesScreenSpace(canvasX, canvasY) {
-        const threshold = 15; // Pixels
+        const threshold = 25; // INCREASED from 15 to 25. Makes it MUCH easier to catch!
         for (let handle of this.visualHandles) {
             const screenPoint = this.viewer.worldToClient(handle.position);
             const dx = Math.abs(screenPoint.x - canvasX);
