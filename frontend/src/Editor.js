@@ -43,6 +43,7 @@ const Editor = () => {
     const [defaultHeight, setDefaultHeight] = useState(3.0);
 
     const [hoveredWallId, setHoveredWallId] = useState(null);
+    const [hoveredOpeningId, setHoveredOpeningId] = useState(null);
 
     // --- NEW: UNDO / REDO FUNCTIONS ---
     const handleUndo = useCallback(() => {
@@ -172,31 +173,36 @@ const Editor = () => {
     }, []);
 
     // --- SAVE THE EXACT DIMENSIONS TO THE WALL DATA ---
+   // --- SAVE THE EXACT DIMENSIONS TO THE WALL DATA ---
     const handleConfirmOpening = (data) => {
         setWalls(prev => {
             setHistory(h => [...h, prev]);
             setFuture([]);
 
-            if (data.isStandalone) {
-                // Standalone Arch/Grill logic
+            // 🌟 BULLETPROOF CHECK: If there is NO wallId, it must be empty space.
+            if (!data.wallId) {
+                // 1. EMPTY SPACE: Create a new invisible host wall
                 const newWall = {
                     id: Date.now() + Math.random(),
                     length: data.finalWidth,
-                    thickness: thickness,
-                    justification: data.justification,
-                    height: defaultHeight,
+                    thickness: data.finalThickness || thickness, 
+                    justification: data.justification || 'CENTER',
+                    height: defaultHeight, // Standard 3m wall
                     points: { p1: data.p1, p2: data.p2 },
                     openings: [{
                         id: Date.now() + Math.random() + 1,
                         type: data.type,
                         width: data.finalWidth,
                         height: data.finalHeight,
+                        thickness: data.finalThickness || thickness, 
                         centerDist: data.finalWidth / 2
                     }]
                 };
                 return [...prev, newWall];
+                
             } else {
-                // Hosted Door/Window logic
+                
+                // 2. HOSTED: Attach to the EXISTING wall (STRICTLY NO NEW WALL CREATED)
                 return prev.map(w => {
                     if (w.id === data.wallId) {
                         const newOpening = {
@@ -204,7 +210,9 @@ const Editor = () => {
                             type: data.type,
                             width: data.finalWidth,
                             height: data.finalHeight,
-                            centerDist: data.centerDist * scaleFactor
+                            thickness: data.finalThickness || w.thickness, 
+                            // Safety check to ensure centerDist is calculated correctly
+                            centerDist: data.centerDist !== undefined ? (data.centerDist * scaleFactor) : (data.finalWidth / 2)
                         };
                         return { ...w, openings: [...(w.openings || []), newOpening] };
                     }
@@ -215,7 +223,6 @@ const Editor = () => {
         setPendingOpening(null); // Close the modal
     };
 
-
     useEffect(() => {
         if (activeTool !== 'WALL') {
             setPickData(null);
@@ -223,87 +230,6 @@ const Editor = () => {
     }, [activeTool]);
 
 
-    // --- OPENING CREATION WITH HISTORY SAVING ---
-    useEffect(() => {
-
-        // 1. Catches doors/windows snapped onto existing walls
-        const handleHostedOpening = (event) => {
-            const { wallId, distance, type } = event.detail;
-
-            // Define standard sizes based on what the user selected
-            let width = 0.9;  // Standard door width
-            let height = 2.1; // Standard door height
-            if (type === 'WINDOW') { width = 1.2; height = 1.2; }
-            if (type === 'ARCH' || type === 'RECT_ARCH' || type === 'GRILL') { width = 1.5; height = 2.1; }
-
-            setWalls(prev => {
-                setHistory(h => [...h, prev]);
-                setFuture([]);
-                return prev.map(w => {
-                    if (w.id === wallId) {
-                        const newOpening = {
-                            id: Date.now() + Math.random(),
-                            type,
-                            width,
-                            height,
-                            centerDist: distance * scaleFactor // Convert CAD distance to Real Meters
-                        };
-                        // Push the new opening into this specific wall's array
-                        return { ...w, openings: [...(w.openings || []), newOpening] };
-                    }
-                    return w;
-                });
-            });
-        };
-
-        // 2. Catches arches/grills drawn in empty space (The Universal Wall concept)
-        const handleStandaloneOpening = (event) => {
-            const { p1, p2, type, justification } = event.detail;
-
-            let height = 2.1;
-            if (type === 'WINDOW') height = 1.2;
-
-            // Calculate exact drawn length
-            const dx = p2.x - p1.x;
-            const dy = p2.y - p1.y;
-            const length = Math.sqrt(dx * dx + dy * dy) * scaleFactor;
-
-            // Create the invisible host wall for estimation purposes
-            const newWall = {
-                id: Date.now() + Math.random(),
-                length: length,
-                thickness: thickness,
-                justification: justification,
-                height: defaultHeight,
-                points: { p1, p2 },
-                openings: [
-                    {
-                        id: Date.now() + Math.random() + 1,
-                        type,
-                        width: length, // Opening fills 100% of the wall width
-                        height: height,
-                        centerDist: length / 2 // Dead center
-                    }
-                ]
-            };
-
-            setWalls(prev => {
-                setHistory(h => [...h, prev]);
-                setFuture([]);
-                return [...prev, newWall];
-            });
-        };
-
-        window.addEventListener('HOSTED_OPENING_CREATED', handleHostedOpening);
-        window.addEventListener('STANDALONE_OPENING_CREATED', handleStandaloneOpening);
-
-        return () => {
-            window.removeEventListener('HOSTED_OPENING_CREATED', handleHostedOpening);
-            window.removeEventListener('STANDALONE_OPENING_CREATED', handleStandaloneOpening);
-        };
-    }, [scaleFactor, thickness, defaultHeight]);
-
-    // --- WALL UPDATE & DELETE WITH HISTORY SAVING ---
     // --- WALL CREATION, UPDATE & DELETE WITH HISTORY SAVING ---
     useEffect(() => {
         // 🌟 NEW: Listen for the wall creation!
@@ -362,10 +288,10 @@ const Editor = () => {
             viewerRef.current.clearWalls();
             walls.forEach(wall => {
                 // ✅ PASS THE WHOLE WALL OBJECT
-                viewerRef.current.drawSolidWall(wall);
+                viewerRef.current.drawSolidWall(wall, hoveredOpeningId);
             });
         }
-    }, [walls]);
+    }, [walls, hoveredOpeningId]);
 
     useEffect(() => {
         if (viewerRef.current) {
@@ -402,6 +328,35 @@ const Editor = () => {
         setHistory(h => [...h, prev]); setFuture([]);
         return prev.filter(w => w.id !== id);
     });
+
+    // 🌟 NEW: Delete a specific opening from a wall
+    const deleteOpening = (wallId, openingId) => {
+        setWalls(prev => {
+            setHistory(h => [...h, prev]); setFuture([]);
+            return prev.map(w => {
+                if (w.id === wallId) {
+                    return { ...w, openings: w.openings.filter(op => op.id !== openingId) };
+                }
+                return w;
+            });
+        });
+    };
+
+    // 🌟 NEW: Update width, height, or thickness of an opening
+    const updateOpeningParams = (wallId, openingId, field, value) => {
+        setWalls(prev => {
+            setHistory(h => [...h, prev]); setFuture([]);
+            return prev.map(w => {
+                if (w.id === wallId) {
+                    const updatedOpenings = w.openings.map(op => 
+                        op.id === openingId ? { ...op, [field]: parseFloat(value) || 0 } : op
+                    );
+                    return { ...w, openings: updatedOpenings };
+                }
+                return w;
+            });
+        });
+    };
 
     return (
         <div className="flex h-screen bg-slate-900 font-sans overflow-hidden">
@@ -474,6 +429,9 @@ const Editor = () => {
                 onUnlockScale={handleUnlockScale}
                 isViewLocked={isViewLocked}
                 setIsViewLocked={setIsViewLocked}
+                deleteOpening={deleteOpening}
+                updateOpeningParams={updateOpeningParams}
+                onHoverOpening={setHoveredOpeningId}
             />
         </div>
     );

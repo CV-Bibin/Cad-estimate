@@ -96,208 +96,125 @@ const ApsViewer = forwardRef(({ urn, scaleFactor = 1, isViewLocked = false }, re
 
 
 
-        drawSolidWall: (wall) => {
-
+        drawSolidWall: (wall, hoveredOpeningId) => {
             try {
-
                 if (!viewerRef.current || !wall || !wall.points || !wall.points.p1 || !wall.points.p2) return;
 
-
-
                 const { p1, p2 } = wall.points;
-
-                const thickness = wall.thickness || 0.23;
-
-                const justification = wall.justification || 'CENTER';
-
-                const height = wall.height || 3.0;
-
-                const openings = wall.openings || [];
-
-
-
                 const dx = p2.x - p1.x;
-
                 const dy = p2.y - p1.y;
 
-                const totalLength = Math.sqrt(dx * dx + dy * dy);
-
-
-
-                if (totalLength < 0.01 || isNaN(totalLength)) return;
-
-
-
+                // 🌟 FIX: Length is calculated in raw CAD coordinates so it draws full-length
+                const length = Math.sqrt(dx * dx + dy * dy);
                 const angle = Math.atan2(dy, dx);
 
+                if (length < 0.01) return;
 
+                const viewerThickness = wall.thickness / scaleFactor;
+                const viewerHeight = (wall.height || 3.0) / scaleFactor;
 
-                // Ensure minimal valid scales
-
-                const viewerThickness = Math.max(0.01, thickness / scaleFactor);
-
-                const viewerHeight = Math.max(0.1, height / scaleFactor);
-
-
-
-                const material = new THREE.MeshBasicMaterial({
-
-                    color: 0x1D4ED8, opacity: 0.7, transparent: true, depthTest: false
-
+                // --- 1. DRAW THE SOLID BLUE WALL ---
+                // We draw one continuous block from Point A to Point B
+                const wallGeo = new THREE.BoxGeometry(length, viewerThickness, viewerHeight);
+                const wallMat = new THREE.MeshBasicMaterial({
+                    color: 0x3B82F6, opacity: 0.4, transparent: true, depthTest: false
                 });
 
-
+                const wallMesh = new THREE.Mesh(wallGeo, wallMat);
 
                 let offset = 0;
-
-                if (justification === 'LEFT') offset = viewerThickness / 2;
-
-                if (justification === 'RIGHT') offset = -viewerThickness / 2;
+                if (wall.justification === 'LEFT') offset = viewerThickness / 2;
+                if (wall.justification === 'RIGHT') offset = -viewerThickness / 2;
 
                 const perpX = -Math.sin(angle) * offset;
-
                 const perpY = Math.cos(angle) * offset;
 
+                const midX = (p1.x + p2.x) / 2;
+                const midY = (p1.y + p2.y) / 2;
+                const baseZ = typeof p1.z !== 'undefined' ? p1.z : 0;
+                const midZ = baseZ + (viewerHeight / 2);
 
+                wallMesh.position.set(midX + perpX, midY + perpY, midZ);
+                wallMesh.rotation.z = angle;
+                wallMesh.userData = { isWall: true, wallId: wall.id };
 
                 if (!viewerRef.current.overlays.hasScene('custom-scene')) {
-
                     viewerRef.current.overlays.addScene('custom-scene');
-
                 }
-
-
-
-                const addWallBlock = (startDist, endDist, bottomZ, topZ) => {
-
-                    // Force positive dimensions to prevent WebGL collapse
-
-                    const blockLen = Math.max(0.01, Math.abs(endDist - startDist));
-
-                    const blockHeight = Math.max(0.01, Math.abs(topZ - bottomZ));
-
-
-
-                    if (isNaN(blockLen) || isNaN(blockHeight)) return;
-
-
-
-                    const geom = new THREE.BoxGeometry(blockLen, viewerThickness, blockHeight);
-
-                    const mesh = new THREE.Mesh(geom, material);
-
-
-
-                    const midDist = (startDist + endDist) / 2;
-
-                    const blockX = p1.x + Math.cos(angle) * midDist + perpX;
-
-                    const blockY = p1.y + Math.sin(angle) * midDist + perpY;
-
-
-
-                    // Force the Z axis base to avoid floating point anomalies below the floor
-
-                    const safeZ = typeof p1.z !== 'undefined' ? p1.z : 0;
-
-                    const blockZ = safeZ + bottomZ + (blockHeight / 2);
-
-
-
-                    mesh.position.set(blockX, blockY, blockZ);
-
-                    mesh.rotation.z = angle;
-
-                    mesh.userData = { isWall: true, wallId: wall.id };
-
-
-
-                    viewerRef.current.overlays.addMesh(mesh, 'custom-scene');
-
-                };
-
-
-
-                const sortedOpenings = [...openings].sort((a, b) => (a.centerDist || 0) - (b.centerDist || 0));
-
-
-
-                let currentWallCursor = 0;
-
-
-
-                sortedOpenings.forEach(op => {
-
-                    const vCenter = (op.centerDist || 0) / scaleFactor;
-
-                    const vWidth = (op.width || 0.9) / scaleFactor;
-
-                    const vHeight = (op.height || 2.1) / scaleFactor;
-
-
-
-                    const opStart = Math.max(currentWallCursor, vCenter - (vWidth / 2));
-
-                    const opEnd = Math.min(totalLength, vCenter + (vWidth / 2));
-
-
-
-                    if (opStart > currentWallCursor) {
-
-                        addWallBlock(currentWallCursor, opStart, 0, viewerHeight);
-
-                    }
-
-
-
-                    const standardDoorTop = 2.1 / scaleFactor;
-
-
-
-                    if (op.type === 'WINDOW') {
-
-                        const sillHeight = standardDoorTop - vHeight;
-
-                        if (sillHeight > 0) addWallBlock(opStart, opEnd, 0, sillHeight);
-
-                        addWallBlock(opStart, opEnd, standardDoorTop, viewerHeight);
-
-                    } else {
-
-                        if (viewerHeight > vHeight) {
-
-                            addWallBlock(opStart, opEnd, vHeight, viewerHeight);
-
+                viewerRef.current.overlays.addMesh(wallMesh, 'custom-scene');
+
+// --- 2. "PAINT" THE OPENINGS OVER THE WALL ---
+                if (wall.openings && wall.openings.length > 0) {
+                    wall.openings.forEach(op => {
+                        const opWidth = op.width / scaleFactor;
+                        const opHeight = op.height / scaleFactor;
+                        const opCenter = op.centerDist / scaleFactor;
+
+                        // 1. Get the custom thickness from the opening (fallback to wall thickness if missing)
+                        const logicalOpThickness = (op.thickness !== undefined ? op.thickness : wall.thickness) / scaleFactor;
+
+                        // 2. Add a tiny 0.02m bump visually so it doesn't flicker against the blue wall
+                        const opThickness = logicalOpThickness + 0.02;
+
+                        let opZ = baseZ + (opHeight / 2);
+                        let opColor;
+
+                        // 🌟 THESE ARE THE TWO CRITICAL LINES THAT WERE MISSING 🌟
+                        const isHovered = op.id === hoveredOpeningId;
+                        const opOpacity = isHovered ? 1.0 : 0.8;
+
+                        if (isHovered) {
+                            opColor = 0xFFB700; // 🌟 HIGHLIGHT COLOR
+                        } else {
+                            // 🎨 ASSIGN DISTINCT COLORS BASED ON TYPE
+                            switch (op.type) {
+                                case 'WINDOW':
+                                    opColor = 0x00FFFF; // Cyan
+                                    const sillHeight = 0.9 / scaleFactor;
+                                    opZ = baseZ + sillHeight + (opHeight / 2); // Windows sit higher
+                                    break;
+                                case 'DOOR':
+                                    opColor = 0x8B4513; // SaddleBrown
+                                    break;
+                                case 'ARCH':
+                                    opColor = 0x9370DB; // MediumPurple
+                                    break;
+                                case 'RECT_ARCH':
+                                case 'RECT ARCH': 
+                                    opColor = 0xFF69B4; // HotPink
+                                    break;
+                                case 'GRILL':
+                                    opColor = 0xFFD700; // Gold/Yellow
+                                    break;
+                                default:
+                                    opColor = 0x888888; // Gray fallback
+                            }
                         }
 
-                    }
+                        const opGeo = new THREE.BoxGeometry(opWidth, opThickness, opHeight);
+                        const opMat = new THREE.MeshBasicMaterial({
+                            // 🌟 THIS NOW USES opOpacity INSTEAD OF HARDCODED 0.8
+                            color: opColor, opacity: opOpacity, transparent: true, depthTest: false
+                        });
 
+                        const opMesh = new THREE.Mesh(opGeo, opMat);
 
+                        // Calculate the exact X/Y position sliding along the wall angle
+                        const opX = p1.x + Math.cos(angle) * opCenter + perpX;
+                        const opY = p1.y + Math.sin(angle) * opCenter + perpY;
 
-                    currentWallCursor = Math.max(currentWallCursor, opEnd);
+                        opMesh.position.set(opX, opY, opZ);
+                        opMesh.rotation.z = angle;
 
-                });
-
-
-
-                if (currentWallCursor < totalLength) {
-
-                    addWallBlock(currentWallCursor, totalLength, 0, viewerHeight);
-
+                        viewerRef.current.overlays.addMesh(opMesh, 'custom-scene');
+                    });
                 }
-
-
 
                 viewerRef.current.impl.invalidate(true, true, true);
 
-
-
             } catch (error) {
-
-                console.error("❌ [ApsViewer] SHIELD CAUGHT FATAL ERROR:", error);
-
+                console.error("❌ [ApsViewer] Error drawing wall:", error);
             }
-
         },
 
     }));
