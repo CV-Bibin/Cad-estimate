@@ -168,26 +168,13 @@ const ApsViewer = forwardRef(({ urn, scaleFactor = 1, isViewLocked = false }, re
                         } else {
                             // 🎨 ASSIGN DISTINCT COLORS BASED ON TYPE
                             switch (op.type) {
-                                case 'WINDOW':
-                                    opColor = 0x00FFFF; // Cyan
-                                    const sillHeight = 0.9 / scaleFactor;
-                                    opZ = baseZ + sillHeight + (opHeight / 2); // Windows sit higher
-                                    break;
-                                case 'DOOR':
-                                    opColor = 0x8B4513; // SaddleBrown
-                                    break;
-                                case 'ARCH':
-                                    opColor = 0x9370DB; // MediumPurple
-                                    break;
+                                case 'WINDOW': opColor = 0x00FFFF; break;
+                                case 'DOOR': opColor = 0x8B4513; break;
+                                case 'ARCH': opColor = 0x9370DB; break;
                                 case 'RECT_ARCH':
-                                case 'RECT ARCH': 
-                                    opColor = 0xFF69B4; // HotPink
-                                    break;
-                                case 'GRILL':
-                                    opColor = 0xFFD700; // Gold/Yellow
-                                    break;
-                                default:
-                                    opColor = 0x888888; // Gray fallback
+                                case 'RECT ARCH': opColor = 0xFF69B4; break;
+                                case 'GRILL': opColor = 0xFFD700; break;
+                                default: opColor = 0x888888;
                             }
                         }
 

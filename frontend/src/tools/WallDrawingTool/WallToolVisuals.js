@@ -21,13 +21,23 @@ export default class WallToolVisuals {
         // NEW: List Highlight Material (Blue)
         this.listHighlightMat = new THREE.MeshBasicMaterial({ color: 0x00A8FF, opacity: 0.5, transparent: true, depthTest: false });
 
+      
+    }
+
+    // 🌟 NEW: Safe Scene Checker
+    _ensureSceneExists() {
+        // If the viewer or overlays aren't loaded yet, abort safely
+        if (!this.viewer || !this.viewer.overlays) return false; 
+        
         if (!this.viewer.overlays.hasScene('custom-scene')) {
             this.viewer.overlays.addScene('custom-scene');
         }
+        return true;
     }
 
     // --- NEW: SIDEBAR LIST HOVER HIGHLIGHT (BLUE GLOW) ---
     showListHighlight(wall, scaledThickness) {
+        if (!this._ensureSceneExists()) return;
         this.clearListHighlight();
 
         if (!wall || !wall.points || !wall.points.p1 || !wall.points.p2) return;
@@ -78,6 +88,7 @@ export default class WallToolVisuals {
 
     // --- ERASER HIGHLIGHT (RED GLOW) ---
     showEraserHighlight(wall, scaledThickness) {
+        if (!this._ensureSceneExists()) return;
         this.clearEraserHighlight();
 
         if (!wall || !wall.points || !wall.points.p1 || !wall.points.p2) return;
@@ -138,6 +149,7 @@ export default class WallToolVisuals {
 
     // --- GHOST WALL ---
     updateGhostWall(p1, p2, thickness, justification) {
+        if (!this._ensureSceneExists()) return;
         this.clearGhostWall();
         
         const dx = p2.x - p1.x;
@@ -179,6 +191,7 @@ export default class WallToolVisuals {
 
     // --- HANDLES ---
    refreshHandles(walls, handlePlacement) {
+    if (!this._ensureSceneExists()) return;
         this.clearHandles();
         if (!walls) return;
 

@@ -23,7 +23,9 @@ const Sidebar = ({
     setIsViewLocked,
     deleteOpening,
     updateOpeningParams,
-    onHoverOpening
+    onHoverOpening,
+    onAddFloor,
+    onNextStep
 }) => {
 
 
@@ -230,73 +232,131 @@ const Sidebar = ({
                     <div className="h-[1px] flex-1 bg-slate-300"></div>
                 </div>
 
+
+
+               
+
                 <div className="p-3 space-y-3 mb-6">
-            {wallsWithNamedOpenings.map(wall => (
-                wall.openings && wall.openings.length > 0 && wall.openings.map((op, index) => (
-                    <div 
-                        key={op.id} 
-                        // 🌟 HOVER EVENTS ADDED HERE
-                        onMouseEnter={() => onHoverOpening(op.id)}
-                        onMouseLeave={() => onHoverOpening(null)}
-                        className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm hover:shadow-md hover:border-yellow-400 hover:bg-yellow-50/30 transition-all cursor-pointer"
-                    >
-
-                        {/* Opening Header */}
-                        <div className="flex justify-between items-center mb-3">
-                            <span className="text-[10px] font-black text-slate-600 uppercase flex items-center gap-1.5">
-                                <span className="text-sm">{op.type === 'WINDOW' ? '🪟' : op.type === 'GRILL' ? '🟨' : '🚪'}</span>
-                                {/* 🌟 UNIQUE DISPLAY NAME USED HERE */}
-                                {op.displayName} <span className="text-slate-400 opacity-60">(Wall {walls.findIndex(w => w.id === wall.id) + 1})</span>
-                            </span>
-                            <button
-                                onClick={() => deleteOpening(wall.id, op.id)}
-                                className="text-slate-300 hover:text-red-500 transition-colors"
-                                title="Delete Opening"
+                    {wallsWithNamedOpenings.map(wall => (
+                        wall.openings && wall.openings.length > 0 && wall.openings.map((op, index) => (
+                            <div
+                                key={op.id}
+                                // 🌟 HOVER EVENTS ADDED HERE
+                                onMouseEnter={() => onHoverOpening(op.id)}
+                                onMouseLeave={() => onHoverOpening(null)}
+                                className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm hover:shadow-md hover:border-yellow-400 hover:bg-yellow-50/30 transition-all cursor-pointer"
                             >
-                                ✕
-                            </button>
-                        </div>
 
-                        {/* Opening Dimensions Inputs */}
-                        <div className="grid grid-cols-3 gap-2">
-                            <div className="space-y-1">
-                                <span className="text-[8px] font-bold text-slate-400 uppercase block text-center">Width</span>
-                                <input
-                                    type="number" step="0.01" value={op.width}
-                                    onChange={(e) => updateOpeningParams(wall.id, op.id, 'width', e.target.value)}
-                                    className="w-full bg-slate-50 border border-slate-200 rounded px-1 py-1 text-[10px] font-bold text-slate-700 text-center outline-none focus:border-yellow-400 focus:bg-white"
-                                />
-                            </div>
-                            <div className="space-y-1">
-                                <span className="text-[8px] font-bold text-slate-400 uppercase block text-center">Height</span>
-                                <input
-                                    type="number" step="0.01" value={op.height}
-                                    onChange={(e) => updateOpeningParams(wall.id, op.id, 'height', e.target.value)}
-                                    className="w-full bg-slate-50 border border-slate-200 rounded px-1 py-1 text-[10px] font-bold text-slate-700 text-center outline-none focus:border-yellow-400 focus:bg-white"
-                                />
-                            </div>
-                            <div className="space-y-1">
-                                <span className="text-[8px] font-bold text-slate-400 uppercase block text-center">Depth</span>
-                                <input
-                                    type="number" step="0.01" value={op.thickness}
-                                    onChange={(e) => updateOpeningParams(wall.id, op.id, 'thickness', e.target.value)}
-                                    className="w-full bg-slate-50 border border-slate-200 rounded px-1 py-1 text-[10px] font-bold text-slate-700 text-center outline-none focus:border-yellow-400 focus:bg-white"
-                                />
-                            </div>
-                        </div>
-                    </div>
-                ))
-            ))}
+                                {/* Opening Header */}
+                                <div className="flex justify-between items-center mb-3">
+                                    <span className="text-[10px] font-black text-slate-600 uppercase flex items-center gap-1.5">
+                                        <span className="text-sm">{op.type === 'WINDOW' ? '🪟' : op.type === 'GRILL' ? '🟨' : '🚪'}</span>
+                                        {/* 🌟 UNIQUE DISPLAY NAME USED HERE */}
+                                        {op.displayName} <span className="text-slate-400 opacity-60">(Wall {walls.findIndex(w => w.id === wall.id) + 1})</span>
+                                    </span>
+                                    <button
+                                        onClick={() => deleteOpening(wall.id, op.id)}
+                                        className="text-slate-300 hover:text-red-500 transition-colors"
+                                        title="Delete Opening"
+                                    >
+                                        ✕
+                                    </button>
+                                </div>
 
-            {/* Show a message if no openings exist on any walls */}
-            {!walls.some(w => w.openings && w.openings.length > 0) && (
-                <div className="text-center py-4 opacity-50">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">No openings added</span>
+                                {/* Opening Dimensions Inputs */}
+                                {/* 🌟 NEW: 4-Column Interconnected Validation Grid */}
+                                <div className="grid grid-cols-4 gap-2">
+                                    <div className="space-y-1">
+                                        <span className="text-[8px] font-bold text-slate-400 uppercase block text-center">Width</span>
+                                        <input
+                                            type="number" step="0.01" value={op.width}
+                                            onChange={(e) => updateOpeningParams(wall.id, op.id, 'width', e.target.value)}
+                                            className={`w-full border rounded px-1 py-1 text-[10px] font-bold text-center outline-none focus:border-yellow-400 focus:bg-white transition-colors
+                                        ${op.width > wall.length ? 'bg-red-100 border-red-500 text-red-600' : 'bg-slate-50 border-slate-200 text-slate-700'}`}
+                                        />
+                                    </div>
+                                    <div className="space-y-1">
+                                        <span className="text-[8px] font-bold text-slate-400 uppercase block text-center">Height</span>
+                                        <input
+                                            type="number" step="0.01" value={op.height}
+                                            onChange={(e) => updateOpeningParams(wall.id, op.id, 'height', e.target.value)}
+                                            className={`w-full border rounded px-1 py-1 text-[10px] font-bold text-center outline-none focus:border-yellow-400 focus:bg-white transition-colors
+                                        ${(op.height > (op.sillHeight !== undefined ? op.sillHeight : 2.1) || op.height > wall.height) ? 'bg-red-100 border-red-500 text-red-600' : 'bg-slate-50 border-slate-200 text-slate-700'}`}
+                                        />
+                                    </div>
+                                    <div className="space-y-1">
+                                        <span className="text-[8px] font-bold text-slate-400 uppercase block text-center">Depth</span>
+                                        <input
+                                            type="number" step="0.01" value={op.thickness}
+                                            onChange={(e) => updateOpeningParams(wall.id, op.id, 'thickness', e.target.value)}
+                                            className={`w-full border rounded px-1 py-1 text-[10px] font-bold text-center outline-none focus:border-yellow-400 focus:bg-white transition-colors
+                                        ${op.thickness > wall.thickness
+                                                    ? 'bg-red-100 border-red-500 text-red-600' // ERROR: Too thick
+                                                    : op.thickness < wall.thickness
+                                                        ? 'bg-orange-100 border-orange-400 text-orange-700' // CAUTION: Thinner than wall (Normal for windows)
+                                                        : 'bg-slate-50 border-slate-200 text-slate-700' // MATCHES WALL PERFECTLY
+                                                }`}
+                                        />
+                                    </div>
+                                    <div className="space-y-1">
+                                        <span className="text-[8px] font-bold text-slate-400 uppercase block text-center" title="Lintel / Top Height">Top/Sill</span>
+                                        <input
+                                            type="number" step="0.01" value={op.sillHeight !== undefined ? op.sillHeight : 2.1}
+                                            onChange={(e) => updateOpeningParams(wall.id, op.id, 'sillHeight', e.target.value)}
+                                            className={`w-full border rounded px-1 py-1 text-[10px] font-bold text-center outline-none focus:border-yellow-400 focus:bg-white transition-colors
+                                        ${(op.sillHeight !== undefined ? op.sillHeight : 2.1) > wall.height ? 'bg-red-100 border-red-500 text-red-600' : 'bg-slate-50 border-slate-200 text-slate-700'}`}
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        ))
+                    ))}
+
+                    
+
+                    {/* Show a message if no openings exist on any walls */}
+                    {!walls.some(w => w.openings && w.openings.length > 0) && (
+                        <div className="text-center py-4 opacity-50">
+                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">No openings added</span>
+                        </div>
+                    )}
+
+
+                    
                 </div>
-            )}
-        </div>
+
+
+                
 
             </div>
+
+
+
+             {/* --- FLOOR MANAGEMENT & NEXT STEPS --- */}
+                <div className="mt-auto p-4 bg-slate-50 border-t border-slate-200 shadow-[0_-4px_10px_rgba(0,0,0,0.02)] z-20">
+                    <div className="flex flex-col gap-2">
+
+                        {/* BUTTON 1: Add Floors */}
+                        <button
+                            onClick={onAddFloor}
+                            className="w-full py-2.5 bg-white border border-slate-300 hover:border-purple-400 hover:bg-purple-50 text-slate-700 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all flex justify-center items-center gap-2 shadow-sm"
+                        >
+                            <span className="text-sm">🏢</span> Add Next Floor
+                        </button>
+
+                        {/* BUTTON 2: Skip to Next Step */}
+                        <button
+                            onClick={onNextStep}
+                            className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all flex justify-center items-center gap-2 shadow-md active:scale-95"
+                        >
+                            <span className="text-sm">➡️</span> Proceed to Next Step
+                        </button>
+
+                    </div>
+                    <p className="text-[8px] text-slate-400 text-center mt-2.5 uppercase font-bold tracking-widest opacity-70">
+                        Skip adding floors if single-story
+                    </p>
+                </div>
         </div>
     );
 };
