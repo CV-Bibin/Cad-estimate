@@ -1,6 +1,12 @@
-import React from 'react';
+import React, { useState } from 'react';
 
 const Sidebar = ({
+    // 🌟 NEW PROPS FOR FLOORS 🌟
+    floors = [],
+    activeFloorId,
+    onSwitchFloor,
+
+    // EXISTING PROPS
     walls,
     deleteWall,
     updateHeight,
@@ -28,8 +34,7 @@ const Sidebar = ({
     onNextStep
 }) => {
 
-
-
+    const [isPlanCompleted, setIsPlanCompleted] = useState(false);
     // 🌟 Calculate beautiful names (Window 1, Window 2, Door 1) right before rendering
     const typeCounters = {};
     const wallsWithNamedOpenings = walls.map(w => {
@@ -49,6 +54,20 @@ const Sidebar = ({
 
             {/* --- TOP SECTION: SETTINGS --- */}
             <div className="bg-slate-50 border-b border-slate-200 z-20 shadow-sm">
+
+                {/* 🌟 NEW: FLOOR SWITCHER DROPDOWN 🌟 */}
+                <div className="px-3 py-2 bg-slate-200/50 border-b border-slate-200 flex items-center justify-between gap-2 z-20">
+                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Floor:</span>
+                    <select
+                        value={activeFloorId}
+                        onChange={(e) => onSwitchFloor(e.target.value)}
+                        className="flex-1 bg-white border border-slate-300 text-slate-700 text-xs font-bold px-2 py-1 rounded outline-none focus:border-blue-400 shadow-sm cursor-pointer"
+                    >
+                        {floors.map(f => (
+                            <option key={f.id} value={f.id}>{f.name} (Z: {f.elevation.toFixed(2)}m)</option>
+                        ))}
+                    </select>
+                </div>
 
                 {/* OPTIMIZED COMPACT ROW: 30% Lock / 70% Calibrate */}
                 <div className="px-3 py-3 border-b border-slate-200 bg-slate-100/30">
@@ -112,6 +131,7 @@ const Sidebar = ({
                                 type="number"
                                 step="0.01"
                                 value={globalThickness}
+                                disabled={isPlanCompleted}
                                 onChange={(e) => setGlobalThickness(parseFloat(e.target.value) || 0)}
                                 className="w-full bg-white border border-slate-200 rounded px-2 py-1 text-xs font-bold text-slate-700 outline-none h-7 focus:border-blue-400"
                             />
@@ -158,12 +178,14 @@ const Sidebar = ({
                                         <div className="w-1.5 h-1.5 rounded-full bg-slate-400 group-hover:bg-blue-500 transition-colors"></div>
                                         <span className="text-[10px] font-bold text-slate-600 uppercase">Wall {i + 1}</span>
                                     </div>
-                                    <button
-                                        onClick={() => deleteWall(wall.id)}
-                                        className="text-slate-300 hover:text-red-500 transition-colors px-1"
-                                    >
-                                        ✕
-                                    </button>
+                                    {!isPlanCompleted && (
+                                        <button
+                                            onClick={() => deleteWall(wall.id)}
+                                            className="text-slate-300 hover:text-red-500 transition-colors px-1"
+                                        >
+                                            ✕
+                                        </button>
+                                    )}
                                 </div>
 
                                 {/* Wall Inputs */}
@@ -232,10 +254,6 @@ const Sidebar = ({
                     <div className="h-[1px] flex-1 bg-slate-300"></div>
                 </div>
 
-
-
-               
-
                 <div className="p-3 space-y-3 mb-6">
                     {wallsWithNamedOpenings.map(wall => (
                         wall.openings && wall.openings.length > 0 && wall.openings.map((op, index) => (
@@ -254,13 +272,15 @@ const Sidebar = ({
                                         {/* 🌟 UNIQUE DISPLAY NAME USED HERE */}
                                         {op.displayName} <span className="text-slate-400 opacity-60">(Wall {walls.findIndex(w => w.id === wall.id) + 1})</span>
                                     </span>
-                                    <button
-                                        onClick={() => deleteOpening(wall.id, op.id)}
-                                        className="text-slate-300 hover:text-red-500 transition-colors"
-                                        title="Delete Opening"
-                                    >
-                                        ✕
-                                    </button>
+                                    {!isPlanCompleted && (
+                                        <button
+                                            onClick={() => deleteOpening(wall.id, op.id)}
+                                            className="text-slate-300 hover:text-red-500 transition-colors"
+                                            title="Delete Opening"
+                                        >
+                                            ✕
+                                        </button>
+                                    )}
                                 </div>
 
                                 {/* Opening Dimensions Inputs */}
@@ -312,51 +332,59 @@ const Sidebar = ({
                         ))
                     ))}
 
-                    
-
                     {/* Show a message if no openings exist on any walls */}
                     {!walls.some(w => w.openings && w.openings.length > 0) && (
                         <div className="text-center py-4 opacity-50">
                             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">No openings added</span>
                         </div>
                     )}
-
-
-                    
                 </div>
-
-
-                
-
             </div>
 
+            {/* 🌟 NEW: THREE-STATE FLOOR MANAGEMENT & NEXT STEPS 🌟 */}
+            <div className="mt-auto p-4 bg-slate-50 border-t border-slate-200 shadow-[0_-4px_10px_rgba(0,0,0,0.02)] z-20">
+                <div className="flex flex-col gap-2">
 
+                    {/* BUTTON 1: Add Floors (Disabled if plan is completed) */}
+                    <button
+                        onClick={onAddFloor}
+                        disabled={isPlanCompleted}
+                        className={`w-full py-2.5 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all flex justify-center items-center gap-2 border 
+                            ${isPlanCompleted
+                                ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed shadow-none'
+                                : 'bg-white border-slate-300 hover:border-purple-400 hover:bg-purple-50 text-slate-700 shadow-sm'}`}
+                    >
+                        <span className="text-sm">🏢</span> Add Next Floor
+                    </button>
 
-             {/* --- FLOOR MANAGEMENT & NEXT STEPS --- */}
-                <div className="mt-auto p-4 bg-slate-50 border-t border-slate-200 shadow-[0_-4px_10px_rgba(0,0,0,0.02)] z-20">
-                    <div className="flex flex-col gap-2">
+                    {/* BUTTON 2: Mark Completed Toggle */}
+                    <button
+                        onClick={() => setIsPlanCompleted(!isPlanCompleted)}
+                        className={`w-full py-2.5 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all flex justify-center items-center gap-2 shadow-sm border
+                            ${isPlanCompleted
+                                ? 'bg-green-50 border-green-500 text-green-700 hover:bg-green-100'
+                                : 'bg-slate-200 border-slate-300 text-slate-600 hover:bg-slate-300'}`}
+                    >
+                        <span className="text-sm">{isPlanCompleted ? '✏️' : '✅'}</span>
+                        {isPlanCompleted ? 'Edit Plan' : 'Mark Completed'}
+                    </button>
 
-                        {/* BUTTON 1: Add Floors */}
-                        <button
-                            onClick={onAddFloor}
-                            className="w-full py-2.5 bg-white border border-slate-300 hover:border-purple-400 hover:bg-purple-50 text-slate-700 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all flex justify-center items-center gap-2 shadow-sm"
-                        >
-                            <span className="text-sm">🏢</span> Add Next Floor
-                        </button>
-
-                        {/* BUTTON 2: Skip to Next Step */}
+                    {/* BUTTON 3: Proceed to Next Step (ONLY VISIBLE IF COMPLETED) */}
+                    {isPlanCompleted && (
                         <button
                             onClick={onNextStep}
                             className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all flex justify-center items-center gap-2 shadow-md active:scale-95"
                         >
                             <span className="text-sm">➡️</span> Proceed to Next Step
                         </button>
+                    )}
 
-                    </div>
-                    <p className="text-[8px] text-slate-400 text-center mt-2.5 uppercase font-bold tracking-widest opacity-70">
-                        Skip adding floors if single-story
-                    </p>
                 </div>
+
+                <p className="text-[8px] text-slate-400 text-center mt-2.5 uppercase font-bold tracking-widest opacity-70">
+                    {isPlanCompleted ? 'Plan locked. Ready for estimation.' : 'Mark as completed to proceed'}
+                </p>
+            </div>
         </div>
     );
 };

@@ -96,7 +96,7 @@ const ApsViewer = forwardRef(({ urn, scaleFactor = 1, isViewLocked = false }, re
 
 
 
-        drawSolidWall: (wall, hoveredOpeningId) => {
+        drawSolidWall: (wall, hoveredOpeningId, isActiveFloor = true) => {
             try {
                 if (!viewerRef.current || !wall || !wall.points || !wall.points.p1 || !wall.points.p2) return;
 
@@ -113,11 +113,21 @@ const ApsViewer = forwardRef(({ urn, scaleFactor = 1, isViewLocked = false }, re
                 const viewerThickness = wall.thickness / scaleFactor;
                 const viewerHeight = (wall.height || 3.0) / scaleFactor;
 
-                // --- 1. DRAW THE SOLID BLUE WALL ---
-                // We draw one continuous block from Point A to Point B
+                // 🌟 NEW: DYNAMIC COLOR LOGIC FOR FLOORS
+                let wallColor = 0x3B82F6; // Default Active Blue
+                let wallOpacity = 0.4;
+                let depthConfig = false;
+
+                if (!isActiveFloor) {
+                    wallColor = 0x555555; // Faded Dark Grey for inactive floors
+                    wallOpacity = 0.15;   // Very transparent (Tracing paper effect)
+                    depthConfig = true;   // Pushes it slightly back visually
+                }
+
+                // --- 1. DRAW THE SOLID WALL ---
                 const wallGeo = new THREE.BoxGeometry(length, viewerThickness, viewerHeight);
                 const wallMat = new THREE.MeshBasicMaterial({
-                    color: 0x3B82F6, opacity: 0.4, transparent: true, depthTest: false
+                    color: wallColor, opacity: wallOpacity, transparent: true, depthTest: depthConfig
                 });
 
                 const wallMesh = new THREE.Mesh(wallGeo, wallMat);
@@ -143,7 +153,7 @@ const ApsViewer = forwardRef(({ urn, scaleFactor = 1, isViewLocked = false }, re
                 }
                 viewerRef.current.overlays.addMesh(wallMesh, 'custom-scene');
 
-// --- 2. "PAINT" THE OPENINGS OVER THE WALL ---
+                // --- 2. "PAINT" THE OPENINGS OVER THE WALL ---
                 if (wall.openings && wall.openings.length > 0) {
                     wall.openings.forEach(op => {
                         const opWidth = op.width / scaleFactor;
@@ -156,14 +166,19 @@ const ApsViewer = forwardRef(({ urn, scaleFactor = 1, isViewLocked = false }, re
                         // 2. Add a tiny 0.02m bump visually so it doesn't flicker against the blue wall
                         const opThickness = logicalOpThickness + 0.02;
 
-                        let opZ = baseZ + (opHeight / 2);
+                        // 🌟 RESTORED SILL/LINTEL MATH: Perfectly floats windows off the floor!
+                        const lintelHeight = (op.sillHeight !== undefined ? op.sillHeight : 2.1) / scaleFactor;
+                        const opZ = baseZ + lintelHeight - (opHeight / 2);
+
                         let opColor;
-
-                        // 🌟 THESE ARE THE TWO CRITICAL LINES THAT WERE MISSING 🌟
                         const isHovered = op.id === hoveredOpeningId;
-                        const opOpacity = isHovered ? 1.0 : 0.8;
+                        let opOpacity = isHovered ? 1.0 : 0.8;
 
-                        if (isHovered) {
+                        // 🌟 NEW: FADE OUT OPENINGS ON INACTIVE FLOORS
+                        if (!isActiveFloor) {
+                            opColor = 0x666666; // Faded Gray to match inactive wall
+                            opOpacity = 0.15;
+                        } else if (isHovered) {
                             opColor = 0xFFB700; // 🌟 HIGHLIGHT COLOR
                         } else {
                             // 🎨 ASSIGN DISTINCT COLORS BASED ON TYPE
@@ -180,8 +195,7 @@ const ApsViewer = forwardRef(({ urn, scaleFactor = 1, isViewLocked = false }, re
 
                         const opGeo = new THREE.BoxGeometry(opWidth, opThickness, opHeight);
                         const opMat = new THREE.MeshBasicMaterial({
-                            // 🌟 THIS NOW USES opOpacity INSTEAD OF HARDCODED 0.8
-                            color: opColor, opacity: opOpacity, transparent: true, depthTest: false
+                            color: opColor, opacity: opOpacity, transparent: true, depthTest: depthConfig
                         });
 
                         const opMesh = new THREE.Mesh(opGeo, opMat);
