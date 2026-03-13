@@ -76,7 +76,7 @@ const ApsViewer = forwardRef(({ urn, scaleFactor = 1, isViewLocked = false }, re
 
         clearWalls: () => {
 
-            if (viewerRef.current) {
+           if (viewerRef.current && viewerRef.current.overlays) {
 
                 // Clear the scene to redraw fresh walls from React state
 
@@ -98,7 +98,7 @@ const ApsViewer = forwardRef(({ urn, scaleFactor = 1, isViewLocked = false }, re
 
         drawSolidWall: (wall, hoveredOpeningId, isActiveFloor = true) => {
             try {
-                if (!viewerRef.current || !wall || !wall.points || !wall.points.p1 || !wall.points.p2) return;
+               if (!viewerRef.current || !viewerRef.current.model || !wall || !wall.points || !wall.points.p1 || !wall.points.p2) return; // 🌟 STOPS DRAWING CRASHES
 
                 const { p1, p2 } = wall.points;
                 const dx = p2.x - p1.x;
@@ -294,176 +294,142 @@ const ApsViewer = forwardRef(({ urn, scaleFactor = 1, isViewLocked = false }, re
 
 
 
-    // --- UPDATED: PREVENT DOUBLE INITIALIZATION BUG ---
-
+   // --- UPDATED: PREVENT DOUBLE INITIALIZATION BUG ---
     useEffect(() => {
-
-        // Only run if URN exists
-
         if (!urn) return;
 
-
-
-        // Helper function to build the viewer and load the document
+        // 🌟 MAGIC CHANGE 1: Create the kill-switch flag
+        let isActive = true;
 
         const loadModel = () => {
-
             if (!containerRef.current) return;
 
-
-
-            // 1. CLEANUP PREVIOUS INSTANCE (Important for loading new files)
-
             if (viewerRef.current) {
-
                 viewerRef.current.finish();
-
                 viewerRef.current = null;
-
             }
-
-
-
-            // 2. START NEW INSTANCE
 
             const viewer = new Autodesk.Viewing.GuiViewer3D(containerRef.current);
-
             viewer.start();
-
             viewerRef.current = viewer;
 
-
-
-            // 3. LOAD TOOLS
-
+            // 3. LOAD TOOLS (Wrapped to silence React popups)
             viewer.loadExtension('Autodesk.Snapping').then(() => {
+                try {
+                    // 🌟 MAGIC CHANGE 2: Abort if user left or viewer is gone
+                    if (!isActive || !viewerRef.current || !viewerRef.current.toolController) return;
 
-                toolRef.current = new WallDrawingTool(
+                    toolRef.current = new WallDrawingTool(
+                        viewer, handleWallCreated, handleWallUpdated, handleWallDeleted
+                    );
+                    
+                    // 🌟 MAGIC CHANGE 3: Optional Chaining (?.) stops 'null' crashes instantly
+                    viewerRef.current.toolController?.registerTool?.(toolRef.current);
 
-                    viewer,
-
-                    handleWallCreated,
-
-                    handleWallUpdated,
-
-                    handleWallDeleted
-
-                );
-
-                viewer.toolController.registerTool(toolRef.current);
-
-
-
-                if (!viewer.overlays.hasScene('custom-scene')) {
-
-                    viewer.overlays.addScene('custom-scene');
-
-                }
-
-            });
-
-
-
-            // 4. LOAD DOCUMENT WITH ERROR CATCHING
-
-            Autodesk.Viewing.Document.load(`urn:${urn}`,
-
-                (doc) => {
-
-                    const defaultModel = doc.getRoot().getDefaultGeometry();
-
-                    viewer.loadDocumentNode(doc, defaultModel).then(() => {
-
-                        viewer.setLightPreset(2);
-
-                        viewer.setEnvMapBackground(false);
-
-                    });
-
-                },
-
-                (errorCode, errorMsg) => {
-
-                    console.error(`❌ Load Error [${errorCode}]: ${errorMsg}`);
-
-                }
-
-            );
-
-        };
-
-
-
-        // CHECK IF AUTODESK IS ALREADY INITIALIZED IN THIS BROWSER TAB
-
-        if (window.APS_IS_INITIALIZED) {
-
-            // If yes, just load the new model
-
-            loadModel();
-
-        } else {
-
-            // If no, initialize Autodesk first, then load the model
-
-            const options = {
-
-                env: 'AutodeskProduction2',
-
-                api: 'streamingV2',
-
-                getAccessToken: async (cb) => {
-
-                    try {
-
-                        const r = await fetch('http://localhost:3001/api/token');
-
-                        if (!r.ok) throw new Error("Token fetch failed");
-
-                        const d = await r.json();
-
-                        cb(d.access_token, d.expires_in);
-
-                    } catch (err) {
-
-                        console.error("❌ Token Error:", err);
-
+                    if (!viewerRef.current.overlays?.hasScene('custom-scene')) {
+                        viewerRef.current.overlays?.addScene('custom-scene');
                     }
-
+                } catch (e) {
+                    console.warn("⚠️ Ghost tool gracefully ignored.");
                 }
+            }).catch(() => {});
 
-            };
+           // 4. LOAD DOCUMENT (With Auto-Retry for New Uploads)
+            Autodesk.Viewing.Document.load(`urn:${urn}`,
+                (doc) => {
+                    try {
+                        if (!isActive || !viewerRef.current || !viewerRef.current.impl) return; 
 
+                        const root = doc.getRoot();
+                        let viewable = root.getDefaultGeometry();
+                        
+                        if (!viewable) {
+                            const allGeometries = root.search({ 'type': 'geometry' });
+                            if (allGeometries && allGeometries.length > 0) {
+                                viewable = allGeometries[0];
+                            }
+                        }
 
+                        // 🌟 THE FIX: AUTO-RETRY LOOP
+                        // If Autodesk is still converting the file, wait 3 seconds and ask again!
+                        if (!viewable) {
+                            console.warn("⏳ Autodesk is still converting the file. Retrying in 3 seconds...");
+                            setTimeout(() => {
+                                if (isActive) loadModel(); // Silently restart the load process
+                            }, 3000);
+                            return;
+                        }
+                        
+                        viewerRef.current.loadDocumentNode(doc, viewable).then(() => {
+                            if (!isActive || !viewerRef.current || !viewerRef.current.impl) return; 
+                            
+                            viewerRef.current.setLightPreset(2);
+                            viewerRef.current.setEnvMapBackground(false);
+                        }).catch(() => {});
 
-            Autodesk.Viewing.Initializer(options, () => {
+                    } catch (e) {
+                        console.warn("⚠️ Ghost document gracefully ignored. Details:", e);
+                    }
+                },
+                (errorCode, errorMsg) => {
+                    if (!isActive) return;
+                    console.error(`❌ Load Error [${errorCode}]: ${errorMsg}`);
+                    
+                    // 🌟 SECOND RETRY LOOP: Error Code 4 literally means "Still Translating"
+                    if (errorCode === 4 || errorCode === 13) {
+                        console.warn("⏳ Translation in progress in the cloud. Retrying in 3 seconds...");
+                        setTimeout(() => {
+                            if (isActive) loadModel();
+                        }, 3000);
+                    }
+                }
+            );
+        };
+// 🌟 ULTIMATE STRICT-MODE FIX: The Promise Waiting Room
+        // This ensures Autodesk's engine is only ever booted up ONCE.
+        if (!window.APS_INIT_PROMISE) {
+            window.APS_INIT_PROMISE = new Promise((resolve) => {
+                const options = {
+                    env: 'AutodeskProduction2',
+                    api: 'streamingV2',
+                    getAccessToken: async (cb) => {
+                        try {
+                            const r = await fetch('http://localhost:3001/api/token');
+                            if (!r.ok) throw new Error("Token fetch failed");
+                            const d = await r.json();
+                            cb(d.access_token, d.expires_in);
+                        } catch (err) {
+                            console.error("❌ Token Error:", err);
+                        }
+                    }
+                };
 
-                window.APS_IS_INITIALIZED = true; // Set global flag so it never runs again
-
-                loadModel();
-
+                Autodesk.Viewing.Initializer(options, () => {
+                    resolve(); // Unlock the door! The engine is fully awake.
+                });
             });
-
         }
 
-
-
+        // Wait for the engine to be awake, THEN load the CAD file
+        window.APS_INIT_PROMISE.then(() => {
+            if (!isActive) return;
+            // 🌟 100ms delay gives the browser time to physically draw the container div
+            setTimeout(() => {
+                if (isActive) loadModel();
+            }, 100);
+        });
+        
         // 5. UNMOUNT CLEANUP
-
         return () => {
-
+            // 🌟 MAGIC CHANGE 5: Flip the kill-switch when you click Dashboard
+            isActive = false; 
+            
             if (viewerRef.current) {
-
                 viewerRef.current.finish();
-
                 viewerRef.current = null;
-
             }
-
         };
-
     }, [urn]);
-
 
 
     return <div ref={containerRef} className="w-full h-full absolute top-0 left-0" />;

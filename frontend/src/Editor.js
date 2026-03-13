@@ -4,9 +4,10 @@ import ApsViewer from './ApsViewer';
 import Sidebar from './components/Sidebar';
 import EditorToolbar from './components/EditorToolbar';
 import ViewerStatusBar from './components/ViewerStatusBar';
+import HomeButton from './components/HomeButton';
+
 // 🌟 NEW: Firebase Realtime Database Imports
-import { ref, set, get, child } from "firebase/database";
-import { db } from './firebase'; // Make sure this path points to your firebase config file
+import { saveProjectData, loadProjectData } from './cloudSync';
 
 // --- 1. IMPORT TOOLS & MODAL ---
 import { CalibrationTool } from './tools/CalibrationTool';
@@ -37,7 +38,7 @@ const Editor = () => {
 
     // 🌟 THIS BRIDGE KEEPS ALL YOUR OLD CODE WORKING PERFECTLY
     const activeFloor = floors.find(f => f.id === activeFloorIdState) || floors[0];
-    const walls = activeFloor.walls; 
+    const walls = activeFloor.walls;
 
     // STATE
     const [scaleFactor, setScaleFactor] = useState(1);
@@ -56,6 +57,8 @@ const Editor = () => {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [tempMeasuredValue, setTempMeasuredValue] = useState(0);
     const [isFloorConfirmOpen, setIsFloorConfirmOpen] = useState(false);
+    const [viewerReady, setViewerReady] = useState(false);
+    const [forceRedraw, setForceRedraw] = useState(0);
 
     // UNDO / REDO STATE (Now saves the whole building!)
     const [history, setHistory] = useState([]);
@@ -72,7 +75,7 @@ const Editor = () => {
     const updateActiveFloorWalls = useCallback((updater) => {
         setFloors(prevFloors => {
             setHistory(h => [...h, prevFloors]);
-            setFuture([]); 
+            setFuture([]);
             return prevFloors.map(floor => {
                 if (floor.id === activeFloorIdRef.current) {
                     const newWalls = typeof updater === 'function' ? updater(floor.walls) : updater;
@@ -99,6 +102,86 @@ const Editor = () => {
         setFuture(prev => prev.slice(1));
         setFloors(nextFloors);
     }, [future, floors]);
+
+
+    // 🌟 NEW: SAVE TO FIREBASE FUNCTION
+    // 🌟 UPDATED: SAVE USING THE REUSABLE COMPONENT
+    const saveProjectToFirebase = async () => {
+        showWarning("⏳ Saving project to cloud...");
+
+        // Bundle up whatever you want to save from this screen
+        const dataToSave = {
+            floors: floors,
+            scaleFactor: scaleFactor,
+            isCalibrated: isCalibrated
+        };
+
+        // Send it to your reusable function!
+        const success = await saveProjectData(urn, dataToSave);
+
+        if (success) {
+            showWarning("💾 Project saved successfully!");
+        } else {
+            showWarning("❌ Failed to save project.");
+        }
+    };
+
+
+    // 🌟 UPDATED: LOAD USING THE REUSABLE COMPONENT (WITH FIREBASE CRASH PROTECTION)
+    useEffect(() => {
+        const fetchCloudData = async () => {
+            const data = await loadProjectData(urn);
+
+            if (data) {
+                if (data.floors && data.floors.length > 0) {
+                    // 🌟 THE FIX: Firebase deletes empty arrays! We must put them back so React doesn't crash.
+                    const safeFloors = data.floors.map(floor => ({
+                        ...floor,
+                        // If walls is missing, force it to be an empty array []
+                        walls: (floor.walls || []).map(wall => ({
+                            ...wall,
+                            // If openings are missing, force it to be an empty array []
+                            openings: wall.openings || []
+                        }))
+                    }));
+
+                    setFloors(safeFloors);
+                    setActiveFloorId(safeFloors[0].id); 
+                }
+                
+                if (data.scaleFactor) setScaleFactor(data.scaleFactor);
+                if (data.isCalibrated !== undefined) setIsCalibrated(data.isCalibrated);
+
+                showWarning("☁️ Previous work loaded from cloud!");
+            }
+        };
+
+        fetchCloudData();
+    // eslint-disable-next-line
+    }, [urn]);
+
+  // 🌟 WAIT FOR AUTODESK VIEWER TO 100% FINISH & DOUBLE-PULSE
+    useEffect(() => {
+        const checkInterval = setInterval(() => {
+            if (viewerRef.current && viewerRef.current.viewer && viewerRef.current.viewer.model) {
+                
+                // Pulse 1: Tell React the viewer is generally ready
+                setTimeout(() => {
+                    setViewerReady(true);
+                    
+                    // 🌟 Pulse 2: Wait 2 seconds for Autodesk's zoom animation to finish, then force a redraw!
+                    setTimeout(() => {
+                        setForceRedraw(prev => prev + 1);
+                    }, 2000);
+
+                }, 2000); 
+                
+                clearInterval(checkInterval);
+            }
+        }, 500);
+        return () => clearInterval(checkInterval);
+    }, []);
+
 
     // Pro Warning Trigger
     const showWarning = (message) => {
@@ -185,25 +268,42 @@ const Editor = () => {
         }
     };
 
-    // TOOL REGISTRATION
+    
+   // TOOL REGISTRATION
+    // 🌟 ULTIMATE BULLETPROOF TOOL REGISTRATION
     useEffect(() => {
-        if (!viewerRef.current || !viewerRef.current.viewer) return;
+        // 1. Wait for our 2-second settle timer
+        if (!viewerReady || !viewerRef.current || !viewerRef.current.viewer) return;
+        
         const viewer = viewerRef.current.viewer;
 
-        if (activeTool === 'CALIBRATION') {
-            if (!viewer.toolController.getTool('calibration-tool')) {
-                const calibTool = new CalibrationTool(viewer, handleCalibrationFinished);
-                viewer.toolController.registerTool(calibTool);
-            }
-            viewer.toolController.activateTool('calibration-tool');
-            console.log("🟢 Calibration Tool Active");
-        } else {
-            const tool = viewer.toolController.getTool('calibration-tool');
-            if (tool && tool.active) {
-                viewer.toolController.deactivateTool('calibration-tool');
-            }
+        // 2. THE ULTIMATE FAILSAFE: 
+        // Check that toolController exists AND that registerTool is actually a loaded function
+        if (!viewer.toolController || typeof viewer.toolController.registerTool !== 'function') {
+            console.warn("⚠️ Autodesk is still building the Tool Controller. Waiting...");
+            return; 
         }
-    }, [activeTool]);
+        
+        try {
+            if (activeTool === 'CALIBRATION') {
+                if (!viewer.toolController.getTool('calibration-tool')) {
+                    const calibTool = new CalibrationTool(viewer, handleCalibrationFinished);
+                    // We know for a fact this is safe to call now
+                    viewer.toolController.registerTool(calibTool);
+                }
+                viewer.toolController.activateTool('calibration-tool');
+                console.log("🟢 Calibration Tool Active");
+            } else {
+                const tool = viewer.toolController.getTool('calibration-tool');
+                if (tool && tool.active) {
+                    viewer.toolController.deactivateTool('calibration-tool');
+                }
+            }
+        } catch (error) {
+            console.warn("⚠️ Tool registration skipped to prevent crash:", error);
+        }
+        
+    }, [activeTool, viewerReady]);
 
     // CATCH OPENING REQUESTS AND OPEN MODAL
     useEffect(() => {
@@ -216,7 +316,7 @@ const Editor = () => {
 
     // SAVE THE EXACT DIMENSIONS TO THE WALL DATA
     const handleConfirmOpening = (data) => {
-        
+
         // PRO CAUTION ALERTS BEFORE SAVING
         if (data.isStandalone) {
             if (data.finalHeight > defaultHeight) {
@@ -243,22 +343,22 @@ const Editor = () => {
                 const newWall = {
                     id: Date.now() + Math.random(),
                     length: data.finalWidth,
-                    thickness: data.finalThickness || thickness, 
+                    thickness: data.finalThickness || thickness,
                     justification: data.justification || 'CENTER',
-                    height: defaultHeight, 
+                    height: defaultHeight,
                     points: { p1: { ...data.p1, z }, p2: { ...data.p2, z } },
                     openings: [{
                         id: Date.now() + Math.random() + 1,
                         type: data.type,
                         width: data.finalWidth,
                         height: data.finalHeight,
-                        thickness: data.finalThickness || thickness, 
+                        thickness: data.finalThickness || thickness,
                         sillHeight: 2.1,
                         centerDist: data.finalWidth / 2
                     }]
                 };
                 return [...prev, newWall];
-                
+
             } else {
                 return prev.map(w => {
                     if (w.id === data.wallId) {
@@ -267,7 +367,7 @@ const Editor = () => {
                             type: data.type,
                             width: data.finalWidth,
                             height: data.finalHeight,
-                            thickness: data.finalThickness || w.thickness, 
+                            thickness: data.finalThickness || w.thickness,
                             sillHeight: 2.1,
                             centerDist: data.centerDist !== undefined ? (data.centerDist * scaleFactor) : (data.finalWidth / 2)
                         };
@@ -277,7 +377,7 @@ const Editor = () => {
                 });
             }
         });
-        setPendingOpening(null); 
+        setPendingOpening(null);
     };
 
     useEffect(() => {
@@ -316,7 +416,7 @@ const Editor = () => {
                 return w;
             }));
         };
-        
+
         const handleDelete = (event) => {
             updateActiveFloorWalls(prev => prev.filter(w => w.id !== event.detail.id));
         };
@@ -324,7 +424,7 @@ const Editor = () => {
         window.addEventListener('SEMANTIC_WALL_CREATED', handleCreate);
         window.addEventListener('SEMANTIC_WALL_UPDATED', handleUpdate);
         window.addEventListener('SEMANTIC_WALL_DELETED', handleDelete);
-        
+
         return () => {
             window.removeEventListener('SEMANTIC_WALL_CREATED', handleCreate);
             window.removeEventListener('SEMANTIC_WALL_UPDATED', handleUpdate);
@@ -332,21 +432,21 @@ const Editor = () => {
         };
     }, [scaleFactor, defaultHeight, updateActiveFloorWalls]);
 
-    // 🌟 VIEWER RENDERING (Now loops through ALL floors)
-   useEffect(() => {
-        if (viewerRef.current) {
+   // 🌟 VIEWER RENDERING (Now listens for the double-pulse!)
+    useEffect(() => {
+        // Only draw if the viewer is fully awake!
+        if (viewerReady && viewerRef.current) {
             viewerRef.current.clearWalls();
             floors.forEach(floor => {
-                // Check if this floor is the one currently selected in the dropdown
-                const isActiveFloor = floor.id === activeFloorIdState; 
-                
+                const isActiveFloor = floor.id === activeFloorIdState;
+
                 floor.walls.forEach(wall => {
-                    // Pass the isActiveFloor flag to the viewer!
                     viewerRef.current.drawSolidWall(wall, hoveredOpeningId, isActiveFloor);
                 });
             });
         }
-    }, [floors, hoveredOpeningId, activeFloorIdState]);
+    // 👇 Notice we added viewerReady, scaleFactor, and forceRedraw here!
+    }, [floors, hoveredOpeningId, activeFloorIdState, viewerReady, scaleFactor, forceRedraw]);
 
     // SETTINGS PASS-DOWN
     useEffect(() => {
@@ -355,7 +455,7 @@ const Editor = () => {
                 isActive: activeTool !== 'NONE',
                 mode: activeTool === 'WALL' ? 'DRAW' : activeTool,
                 wallMode,
-                thickness, justification, isOrtho: ortho, isSnapping, 
+                thickness, justification, isOrtho: ortho, isSnapping,
                 walls: walls, // 🌟 Snap targets are strictly the active floor!
                 scaleFactor,
                 hoveredListWallId: hoveredWallId,
@@ -374,7 +474,7 @@ const Editor = () => {
     const updateHeight = (id, val) => updateActiveFloorWalls(prev => prev.map(w => w.id === id ? { ...w, height: parseFloat(val) || 0 } : w));
     const updateWallThickness = (id, val) => updateActiveFloorWalls(prev => prev.map(w => w.id === id ? { ...w, thickness: parseFloat(val) || 0 } : w));
     const deleteWall = (id) => updateActiveFloorWalls(prev => prev.filter(w => w.id !== id));
-    
+
     const deleteOpening = (wallId, openingId) => updateActiveFloorWalls(prev => prev.map(w => {
         if (w.id === wallId) return { ...w, openings: w.openings.filter(op => op.id !== openingId) };
         return w;
@@ -383,7 +483,7 @@ const Editor = () => {
     const updateOpeningParams = (wallId, openingId, field, value) => {
         const numValue = parseFloat(value) || 0;
         const targetWall = walls.find(w => w.id === wallId);
-        
+
         if (targetWall) {
             if (field === 'width' && numValue > targetWall.length) showWarning(`New width (${numValue}m) exceeds wall length (${targetWall.length.toFixed(2)}m).`);
             if (field === 'height' && numValue > targetWall.height) showWarning(`New height (${numValue}m) exceeds wall height (${targetWall.height.toFixed(2)}m).`);
@@ -400,7 +500,7 @@ const Editor = () => {
     };
 
     // 🌟 HANDLE FLOOR ADDING
-   // 🌟 HANDLE FLOOR ADDING (Opens the beautiful modal)
+    // 🌟 HANDLE FLOOR ADDING (Opens the beautiful modal)
     const handleAddFloor = () => {
         if (walls.length === 0) {
             showWarning("⚠️ CAUTION: You must draw walls on the current floor before adding a new level.");
@@ -412,10 +512,10 @@ const Editor = () => {
     // 🌟 THE ACTUAL FUNCTION THAT RUNS WHEN THEY CLICK "YES" IN THE MODAL
     const executeAddFloor = () => {
         const nextFloorNum = floors.length + 1;
-        
+
         // Mathematically stack the new floor on top (using a standard 12cm residential slab)
         const maxWallHeight = Math.max(...walls.map(w => w.height || 0));
-        const newElevation = activeFloor.elevation + maxWallHeight + 0.12; 
+        const newElevation = activeFloor.elevation + maxWallHeight + 0.12;
 
         const newFloor = {
             id: `floor-${Date.now()}`,
@@ -463,11 +563,16 @@ const Editor = () => {
             <EditorToolbar isCalibrated={isCalibrated} activeTool={activeTool} setActiveTool={setActiveTool} wallMode={wallMode} setWallMode={setWallMode} openingMode={openingMode} setOpeningMode={setOpeningMode} handleUndo={handleUndo} handleRedo={handleRedo} historyLength={history.length} futureLength={future.length} justification={justification} toggleJustification={toggleJustification} ortho={ortho} setOrtho={setOrtho} isSnapping={isSnapping} setIsSnapping={setIsSnapping} />
 
             <div className="flex-1 relative ml-20 bg-black rounded-l-3xl overflow-hidden border-l border-slate-700">
+
+                <div className="absolute top-5 left-6 z-[100]">
+                    <HomeButton showWarning={true} />
+                </div>
+
                 <ViewerStatusBar activeTool={activeTool} openingMode={openingMode} isSnapping={isSnapping} ortho={ortho} />
                 <ApsViewer ref={viewerRef} urn={decodeURIComponent(urn)} scaleFactor={scaleFactor} isViewLocked={isViewLocked} />
             </div>
 
-{/* 🌟 NEW: CUSTOM ADD FLOOR MODAL 🌟 */}
+            {/* 🌟 NEW: CUSTOM ADD FLOOR MODAL 🌟 */}
             {isFloorConfirmOpen && (
                 <div className="absolute inset-0 z-[300] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm">
                     <div className="bg-white rounded-2xl shadow-2xl w-[400px] border border-slate-200 overflow-hidden transform transition-all animate-fade-in-up">
@@ -483,13 +588,13 @@ const Editor = () => {
                                 Are you sure you are ready to move to the next floor? Your current active walls will become faded reference lines to help you draft the next level.
                             </p>
                             <div className="flex gap-3">
-                                <button 
+                                <button
                                     onClick={() => setIsFloorConfirmOpen(false)}
                                     className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 text-xs font-bold uppercase tracking-widest transition-colors"
                                 >
                                     Cancel
                                 </button>
-                                <button 
+                                <button
                                     onClick={executeAddFloor}
                                     className="flex-1 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold uppercase tracking-widest shadow-md transition-colors"
                                 >
@@ -507,9 +612,9 @@ const Editor = () => {
                 floors={floors}
                 activeFloorId={activeFloorIdState}
                 onSwitchFloor={setActiveFloorId}
-                
+
                 walls={walls}
-                deleteWall={deleteWall} updateHeight={updateHeight} updateThickness={updateWallThickness} onHoverWall={setHoveredWallId} globalThickness={thickness} setGlobalThickness={setThickness} globalHeight={defaultHeight} setGlobalHeight={setDefaultHeight} ortho={ortho} setOrtho={setOrtho} isSnapping={isSnapping} setIsSnapping={setIsSnapping} scaleFactor={scaleFactor} setScaleFactor={setScaleFactor} isCalibrated={isCalibrated} onStartCalibration={() => setActiveTool('CALIBRATION')} onUnlockScale={handleUnlockScale} isViewLocked={isViewLocked} setIsViewLocked={setIsViewLocked} deleteOpening={deleteOpening} updateOpeningParams={updateOpeningParams} onHoverOpening={setHoveredOpeningId} onAddFloor={handleAddFloor} onNextStep={handleNextStep}
+                deleteWall={deleteWall} updateHeight={updateHeight} updateThickness={updateWallThickness} onHoverWall={setHoveredWallId} globalThickness={thickness} setGlobalThickness={setThickness} globalHeight={defaultHeight} setGlobalHeight={setDefaultHeight} ortho={ortho} setOrtho={setOrtho} isSnapping={isSnapping} setIsSnapping={setIsSnapping} scaleFactor={scaleFactor} setScaleFactor={setScaleFactor} isCalibrated={isCalibrated} onStartCalibration={() => setActiveTool('CALIBRATION')} onUnlockScale={handleUnlockScale} isViewLocked={isViewLocked} setIsViewLocked={setIsViewLocked} deleteOpening={deleteOpening} updateOpeningParams={updateOpeningParams} onHoverOpening={setHoveredOpeningId} onAddFloor={handleAddFloor} onNextStep={handleNextStep} onSaveProject={saveProjectToFirebase}
             />
 
         </div>

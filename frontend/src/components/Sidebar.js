@@ -31,7 +31,8 @@ const Sidebar = ({
     updateOpeningParams,
     onHoverOpening,
     onAddFloor,
-    onNextStep
+    onNextStep,
+    onSaveProject
 }) => {
 
     const [isPlanCompleted, setIsPlanCompleted] = useState(false);
@@ -69,15 +70,15 @@ const Sidebar = ({
                     </select>
                 </div>
 
-                {/* OPTIMIZED COMPACT ROW: 30% Lock / 70% Calibrate */}
+               {/* OPTIMIZED COMPACT ROW: Lock / Save / Calibrate */}
                 <div className="px-3 py-3 border-b border-slate-200 bg-slate-100/30">
                     <div className="flex gap-2 items-stretch h-12">
 
-                        {/* 1. COMPACT VIEW LOCK (30% Width) */}
+                        {/* 1. COMPACT VIEW LOCK */}
                         <button
                             onClick={() => setIsViewLocked(!isViewLocked)}
-                            className={`w-[30%] flex flex-col items-center justify-center rounded-xl border transition-all active:scale-95
-              ${isViewLocked
+                            className={`w-[22%] flex flex-col items-center justify-center rounded-xl border transition-all active:scale-95
+                                ${isViewLocked
                                     ? 'bg-red-500 text-white border-red-600 shadow-inner'
                                     : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'}`}
                             title={isViewLocked ? "Unlock Navigation" : "Lock View"}
@@ -88,7 +89,19 @@ const Sidebar = ({
                             </span>
                         </button>
 
-                        {/* 2. PROMINENT CALIBRATION (70% Width) */}
+                        {/* 🌟 2. NEW COMPACT SAVE BUTTON 🌟 */}
+                        <button
+                            onClick={onSaveProject}
+                            className="w-[22%] flex flex-col items-center justify-center rounded-xl border border-slate-700 bg-slate-800 hover:bg-slate-900 text-white transition-all active:scale-95 shadow-sm"
+                            title="Save Progress to Cloud"
+                        >
+                            <span className="text-sm">💾</span>
+                            <span className="text-[7px] font-black uppercase tracking-tighter mt-0.5 text-slate-200">
+                                Save
+                            </span>
+                        </button>
+
+                        {/* 3. PROMINENT CALIBRATION */}
                         <div className="flex-1">
                             {isCalibrated ? (
                                 <div className="h-full flex items-center justify-between bg-green-50 border border-green-200 rounded-xl px-3">
@@ -110,7 +123,9 @@ const Sidebar = ({
                                     className="w-full h-full flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl shadow-md transition-all active:scale-95 group"
                                 >
                                     <span className="text-base group-hover:rotate-12 transition-transform">📏</span>
-                                    <span className="text-[10px] font-black uppercase tracking-widest">Calibrate Plan</span>
+                                    <span className="text-[10px] font-black uppercase tracking-widest leading-none text-left">
+                                        Calibrate<br/>Plan
+                                    </span>
                                 </button>
                             )}
                         </div>
