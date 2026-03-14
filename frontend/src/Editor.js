@@ -531,15 +531,30 @@ const Editor = () => {
         setIsFloorConfirmOpen(false); // Close the modal
         showWarning(`🏢 Successfully created and switched to ${newFloor.name}`);
     };
-    // HANDLE SKIPPING
-    const handleNextStep = () => {
+ // 🌟 HANDLE SKIPPING TO STAGE 2 (WITH AUTO-SAVE)
+    const handleNextStep = async () => {
         if (floors[0].walls.length === 0) {
             showWarning("⚠️ CAUTION: You haven't drawn any walls to estimate yet!");
             return;
         }
-        const confirmNext = window.confirm("Skip adding more floors and proceed to Estimation / Sub-structure?");
-        if (confirmNext) {
-            showWarning("📊 Proceeding to the Estimation Engine...");
+
+        showWarning("⏳ Auto-saving draft before continuing...");
+
+        // 1. Bundle up your current walls
+        const dataToSave = {
+            floors: floors,
+            scaleFactor: scaleFactor,
+            isCalibrated: isCalibrated
+        };
+
+        // 2. Force a cloud save BEFORE we jump to the next page
+        const success = await saveProjectData(urn, dataToSave);
+
+        if (success) {
+            // 3. Now that Firebase definitely has the walls, jump to Stage 2!
+            navigate(`/structure/${encodeURIComponent(urn)}`);
+        } else {
+            showWarning("❌ Error saving to cloud. Cannot proceed.");
         }
     };
 
