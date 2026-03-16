@@ -73,8 +73,8 @@ const StructuralApsViewer = forwardRef(({ urn, scaleFactor = 1, isViewLocked = f
                 const viewerThickness = wall.thickness / scaleFactor;
                 const viewerHeight = (wall.height || 3.0) / scaleFactor;
 
-                const wallColor = 0x64748B; 
-                const wallOpacity = 0.20;
+                const wallColor = 0x91bd19; 
+                const wallOpacity = 0.40;
 
                 const wallGeo = new THREE.BoxGeometry(length, viewerThickness, viewerHeight);
                 const wallMat = new THREE.MeshBasicMaterial({
@@ -113,7 +113,7 @@ const StructuralApsViewer = forwardRef(({ urn, scaleFactor = 1, isViewLocked = f
 
                         const opGeo = new THREE.BoxGeometry(opWidth, opThickness, opHeight);
                         const opMat = new THREE.MeshBasicMaterial({
-                            color: 0x64748B, opacity: 0.20, transparent: true, depthTest: false
+                            color: 0x8a5c36, opacity: 0.40, transparent: true, depthTest: false
                         });
 
                         const opMesh = new THREE.Mesh(opGeo, opMat);
@@ -190,6 +190,7 @@ const StructuralApsViewer = forwardRef(({ urn, scaleFactor = 1, isViewLocked = f
             areaToolRef.current = new AreaDrawingTool(viewer, (points, zoneType) => {
                 window.dispatchEvent(new CustomEvent('AREA_COMPLETED', {
                     detail: { points, zoneType, id: Date.now() + Math.random() }
+                    
                 }));
             });
             viewer.toolController.registerTool(areaToolRef.current);

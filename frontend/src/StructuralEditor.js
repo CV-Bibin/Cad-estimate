@@ -1,8 +1,92 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { loadProjectData, saveProjectData } from './cloudSync';
-import StructuralApsViewer from './StructuralApsViewer'; // 🌟 USING OUR NEW ENGINE!
+import StructuralApsViewer from './StructuralApsViewer'; 
 import HomeButton from './components/HomeButton';
+import AreaDetailsSidebar from './components/AreaDetailsSidebar';
+
+// 🌟 MATH HELPER
+const calculateAreaDetails = (points, zoneType, scaleFactor = 1, allWalls = []) => {
+    if (!points || points.length < 3) return null;
+
+    let rawArea = 0;
+    for (let i = 0; i < points.length; i++) {
+        let j = (i + 1) % points.length;
+        rawArea += points[i].x * points[j].y;
+        rawArea -= points[j].x * points[i].y;
+    }
+    rawArea = Math.abs(rawArea / 2);
+
+    let minX = Infinity, maxX = -Infinity;
+    let minY = Infinity, maxY = -Infinity;
+    points.forEach(p => {
+        if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
+        if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
+    });
+
+    let shapeName = `${points.length}-Sided`;
+    if (points.length === 3) shapeName = "Triangle";
+    else if (points.length === 4) shapeName = "Rectangular";
+    else if (points.length === 6) shapeName = "L-Shaped";
+    else if (points.length === 8) shapeName = "T/U-Shaped";
+
+   let touchedSides = new Set();
+    let connectedOpenings = [];
+
+    const distToSegment = (px, py, x1, y1, x2, y2) => {
+        const A = px - x1, B = py - y1, C = x2 - x1, D = y2 - y1;
+        const dot = A * C + B * D;
+        const len_sq = C * C + D * D;
+        let param = -1;
+        if (len_sq !== 0) param = dot / len_sq;
+        let xx, yy;
+        if (param < 0) { xx = x1; yy = y1; }
+        else if (param > 1) { xx = x2; yy = y2; }
+        else { xx = x1 + param * C; yy = y1 + param * D; }
+        return Math.sqrt(Math.pow(px - xx, 2) + Math.pow(py - yy, 2));
+    };
+
+    allWalls.forEach(wall => {
+        if (!wall.points) return;
+        const midX = (wall.points.p1.x + wall.points.p2.x) / 2;
+        const midY = (wall.points.p1.y + wall.points.p2.y) / 2;
+
+       let touchesAnySide = false;
+
+        for (let i = 0; i < points.length; i++) {
+            let j = (i + 1) % points.length;
+            const dist = distToSegment(midX, midY, points[i].x, points[i].y, points[j].x, points[j].y);
+            if (dist < 0.4) { 
+                touchedSides.add(i); // 🌟 Record the specific side index (0, 1, 2, etc.)
+                touchesAnySide = true;
+            }
+        }
+
+        if (touchesAnySide) {
+            if (wall.openings && wall.openings.length > 0) {
+                wall.openings.forEach(op => {
+                    const width = op.width ? (op.width * scaleFactor).toFixed(2) : "0.90";
+                    const height = op.height ? (op.height * scaleFactor).toFixed(2) : "2.10"; 
+                    connectedOpenings.push(`${width} x ${height}`);
+                });
+            }
+        }
+    });
+
+    return {
+        id: Date.now() + Math.random(),
+        name: "New Room",
+        zoneType: zoneType || 'INDOOR',
+        shape: shapeName,
+        areaM2: (rawArea * (scaleFactor * scaleFactor)).toFixed(2),
+        areaSqFt: (rawArea * (scaleFactor * scaleFactor) * 10.7639).toFixed(2),
+        length: ((maxX - minX) * scaleFactor).toFixed(2),
+        breadth: ((maxY - minY) * scaleFactor).toFixed(2),
+        points: points,
+        wallsCount: touchedSides.size,
+        openings: connectedOpenings 
+    };
+};
 
 const StructuralEditor = () => {
     const { urn } = useParams();
@@ -17,52 +101,50 @@ const StructuralEditor = () => {
     // 🌟 DATA STATES
     const [archFloors, setArchFloors] = useState([]);
     const [structuralFloors, setStructuralFloors] = useState([]);
-    const [drawnAreas, setDrawnAreas] = useState([]); // 🌟 Where we save drawn rooms
+    const [drawnAreas, setDrawnAreas] = useState([]); 
+    
+    // 🌟 FLOOR STATE (NEW)
+    const [currentFloorIndex, setCurrentFloorIndex] = useState(0);
 
     // 🌟 TOOL STATES
     const [activeTool, setActiveTool] = useState('NONE'); 
     const [zoneType, setZoneType] = useState('INDOOR'); 
-
     const [scaleFactor, setScaleFactor] = useState(1);
     const [viewerReady, setViewerReady] = useState(false);
     const [forceRedraw, setForceRedraw] = useState(0);
-    const [orthoEnabled, setOrthoEnabled] = useState(false); // 🌟 NEW
-    const [osnapEnabled, setOsnapEnabled] = useState(true);  // 🌟 NEW
+    const [orthoEnabled, setOrthoEnabled] = useState(false); 
+    const [osnapEnabled, setOsnapEnabled] = useState(true);  
 
-    const totalWallsLoaded = archFloors.reduce((sum, floor) => sum + (floor.walls ? floor.walls.length : 0), 0);
+    // Calculate walls for the CURRENT floor only
+    const totalWallsLoaded = archFloors[currentFloorIndex] ? (archFloors[currentFloorIndex].walls?.length || 0) : 0;
 
-
-    // 🌟 EXTRACT ALL WALL CORNERS FOR OSNAP
+    // 🌟 EXTRACT CORNERS FOR OSNAP (CURRENT FLOOR ONLY)
     const snapPoints = React.useMemo(() => {
         let pts = [];
-        archFloors.forEach(floor => {
-            (floor.walls || []).forEach(wall => {
+        const activeFloor = archFloors[currentFloorIndex];
+        if (activeFloor && activeFloor.walls) {
+            activeFloor.walls.forEach(wall => {
                 if (wall.points && wall.points.p1) pts.push(wall.points.p1);
                 if (wall.points && wall.points.p2) pts.push(wall.points.p2);
             });
-        });
+        }
         return pts;
-    }, [archFloors]);
+    }, [archFloors, currentFloorIndex]);
 
     const processCenterlines = (rawFloors) => {
         const SNAP_TOLERANCE = 0.15;
         let processedFloors = JSON.parse(JSON.stringify(rawFloors));
-
         processedFloors.forEach(floor => {
             let vertices = [];
             floor.walls.forEach(w => vertices.push(w.points.p1, w.points.p2));
-
             vertices.forEach((v1, i) => {
                 vertices.forEach((v2, j) => {
                     if (i !== j) {
                         const dist = Math.sqrt(Math.pow(v2.x - v1.x, 2) + Math.pow(v2.y - v1.y, 2));
-                        if (dist > 0 && dist <= SNAP_TOLERANCE) {
-                            v2.x = v1.x; v2.y = v1.y;
-                        }
+                        if (dist > 0 && dist <= SNAP_TOLERANCE) { v2.x = v1.x; v2.y = v1.y; }
                     }
                 });
             });
-
             floor.walls.forEach(w => {
                 const dx = w.points.p2.x - w.points.p1.x;
                 const dy = w.points.p2.y - w.points.p1.y;
@@ -70,21 +152,17 @@ const StructuralEditor = () => {
                 w.justification = 'CENTER';
             });
         });
-
         return processedFloors;
     };
 
-    // --- STARTUP SEQUENCE ---
     useEffect(() => {
         const bootStructuralEngine = async () => {
             setLoadingText("📥 Downloading Project Data...");
             const data = await loadProjectData(urn);
-
             if (data) {
                 if (data.floors && data.floors.length > 0) {
                     setArchFloors(JSON.parse(JSON.stringify(data.floors)));
                 }
-
                 let activeStructure = [];
                 if (data.structuralFloors && data.structuralFloors.length > 0) {
                     activeStructure = data.structuralFloors;
@@ -92,10 +170,8 @@ const StructuralEditor = () => {
                     setLoadingText("⚙️ Auto-Healing Wall Intersections...");
                     await new Promise(resolve => setTimeout(resolve, 800));
                     activeStructure = processCenterlines(data.floors);
-                    setLoadingText("💾 Saving Structural Baseline...");
                     await saveProjectData(urn, { ...data, structuralFloors: activeStructure });
                 }
-
                 setStructuralFloors(activeStructure);
                 if (data.scaleFactor) setScaleFactor(data.scaleFactor);
                 setTimeout(() => setIsProcessing(false), 500);
@@ -104,10 +180,8 @@ const StructuralEditor = () => {
             }
         };
         bootStructuralEngine();
-        // eslint-disable-next-line
     }, [urn]);
 
-    // --- VIEWER READY PULSE ---
     useEffect(() => {
         if (isProcessing) return;
         let count = 0;
@@ -122,51 +196,78 @@ const StructuralEditor = () => {
         return () => clearInterval(pulseInterval);
     }, [isProcessing]);
 
-   // 🌟 WIRING 1: SEND ACTIVE TOOL TO THE VIEWER
     useEffect(() => {
         if (viewerReady && viewerRef.current && viewerRef.current.updateSettings) {
             viewerRef.current.updateSettings({
                 activeTool: activeTool,
                 zoneType: zoneType,
                 snapPoints: snapPoints, 
-                orthoEnabled: orthoEnabled, // 🌟 NEW
-                osnapEnabled: osnapEnabled  // 🌟 NEW
+                orthoEnabled: orthoEnabled,
+                osnapEnabled: osnapEnabled  
             });
         }
-}, [activeTool, zoneType, snapPoints, orthoEnabled, osnapEnabled, viewerReady]);
-    // 🌟 WIRING 2: CATCH COMPLETED AREAS FROM THE VIEWER
+    }, [activeTool, zoneType, snapPoints, orthoEnabled, osnapEnabled, viewerReady]);
+
+    // 🌟 CATCH COMPLETED AREAS (Tagged to current floor)
     useEffect(() => {
         const handleArea = (e) => {
-            console.log("📥 REACT CAUGHT AREA:", e.detail);
-            setDrawnAreas(prev => [...prev, e.detail]);
-            setActiveTool('NONE'); // Auto-turn off the tool so they can click the next one!
+            setDrawnAreas(prevAreas => {
+                // Get ONLY the current floor's walls for collision testing
+                const currentFloorWalls = archFloors[currentFloorIndex]?.walls || [];
+
+                const newAreaDetails = calculateAreaDetails(
+                    e.detail.points || e.detail, 
+                    e.detail.zoneType || zoneType, 
+                    scaleFactor,
+                    currentFloorWalls 
+                );
+                
+                if (newAreaDetails) {
+                    // Filter prevAreas to accurately count rooms ON THIS FLOOR
+                    const roomsOnThisFloor = prevAreas.filter(a => a.floorIndex === currentFloorIndex).length;
+                    newAreaDetails.name = `Room ${roomsOnThisFloor + 1}`;
+                    newAreaDetails.floorIndex = currentFloorIndex; // 🌟 Assign the Area to the Floor
+                    return [...prevAreas, newAreaDetails];
+                }
+                return prevAreas;
+            });
+            setActiveTool('NONE'); 
         };
         window.addEventListener('AREA_COMPLETED', handleArea);
         return () => window.removeEventListener('AREA_COMPLETED', handleArea);
-    }, []);
+    }, [zoneType, scaleFactor, archFloors, currentFloorIndex]);
 
-    // 🌟 DRAW EVERYTHING (WALLS + NEW AREAS)
+    const handleDeleteArea = (idToRemove) => {
+        setDrawnAreas(prev => prev.filter(area => area.id !== idToRemove));
+    };
+
+    const handleRenameArea = (idToRename, newName) => {
+        setDrawnAreas(prev => prev.map(area => 
+            area.id === idToRename ? { ...area, name: newName } : area
+        ));
+    };
+
+    // 🌟 DRAW CURRENT FLOOR ONLY
     useEffect(() => {
         if (viewerReady && viewerRef.current) {
             viewerRef.current.clearWalls?.();
-            viewerRef.current.clearAreas?.(); // Wipe old areas before redrawing
+            viewerRef.current.clearAreas?.(); 
 
-            // Draw blueprint walls
-            if (showWalls) {
-                archFloors.forEach(floor => {
-                    (floor.walls || []).forEach(wall => {
-                        viewerRef.current.drawSolidWall(wall, null, true, true);
-                    });
+            // Draw blueprint walls for CURRENT FLOOR
+            if (showWalls && archFloors[currentFloorIndex]) {
+                (archFloors[currentFloorIndex].walls || []).forEach(wall => {
+                    viewerRef.current.drawSolidWall(wall, null, true, true);
                 });
             }
 
-            // Draw the colored floor zones
-            drawnAreas.forEach(area => {
-                viewerRef.current.drawSolidArea?.(area);
-            });
+            // Draw colored floor zones for CURRENT FLOOR
+            drawnAreas
+                .filter(area => area.floorIndex === currentFloorIndex)
+                .forEach(area => {
+                    viewerRef.current.drawSolidArea?.(area);
+                });
         }
-    }, [archFloors, drawnAreas, viewerReady, scaleFactor, forceRedraw, showWalls]);
-
+    }, [archFloors, drawnAreas, viewerReady, scaleFactor, forceRedraw, showWalls, currentFloorIndex]);
 
     if (isProcessing) {
         return (
@@ -180,10 +281,13 @@ const StructuralEditor = () => {
         );
     }
 
+    // Filter sidebar data so you only see estimations for the active floor
+    const activeFloorAreas = drawnAreas.filter(area => area.floorIndex === currentFloorIndex);
+
     return (
         <div className="flex h-screen bg-slate-900 font-sans overflow-hidden relative">
 
-            {/* --- SIDEBAR --- */}
+            {/* --- LEFT SIDEBAR --- */}
             <div className="w-80 bg-slate-800 border-r border-slate-700 flex flex-col z-10 shadow-2xl relative">
                 <div className="p-6 border-b border-slate-700 bg-slate-900/50">
                     <h2 className="text-white text-lg font-black tracking-wider uppercase mb-1">Stage 2</h2>
@@ -191,14 +295,36 @@ const StructuralEditor = () => {
                 </div>
 
                 <div className="p-6 flex-1 overflow-y-auto">
-                    <div className="bg-slate-900/50 rounded-xl p-3 mb-6 flex justify-between items-center border border-slate-700 shadow-inner">
-                        <span className="text-slate-400 text-xs font-bold tracking-widest uppercase">Drafted Walls</span>
+                    
+                    {/* 🌟 NEW: FLOOR SWITCHER UI */}
+                    {archFloors.length > 1 && (
+                        <div className="mb-6">
+                            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-2 border-b border-slate-700 pb-1">Select Floor:</p>
+                            <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-slate-600">
+                                {archFloors.map((floor, idx) => (
+                                    <button
+                                        key={idx}
+                                        onClick={() => setCurrentFloorIndex(idx)}
+                                        className={`px-4 py-2 text-xs font-bold rounded-lg border whitespace-nowrap transition-all ${
+                                            currentFloorIndex === idx 
+                                            ? 'bg-blue-600 text-white border-blue-500 shadow-md' 
+                                            : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white hover:bg-slate-700'
+                                        }`}
+                                    >
+                                        {floor.name || `Floor ${idx + 1}`}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* <div className="bg-slate-900/50 rounded-xl p-3 mb-6 flex justify-between items-center border border-slate-700 shadow-inner">
+                        <span className="text-slate-400 text-xs font-bold tracking-widest uppercase">Active Floor Walls</span>
                         <span className="bg-blue-500 text-white text-xs font-black px-3 py-1 rounded-md">{totalWallsLoaded}</span>
-                    </div>
+                    </div> */}
 
                     <h3 className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-4">Structural Tools</h3>
 
-                    {/* 🌟 DRAW ROOM AREA BUTTON */}
                     <button 
                         onClick={() => setActiveTool(activeTool === 'AREA' ? 'NONE' : 'AREA')}
                         className={`w-full py-3 px-4 rounded-xl text-sm font-bold shadow-md transition-colors mb-2 flex items-center justify-between ${
@@ -213,11 +339,8 @@ const StructuralEditor = () => {
                         {activeTool === 'AREA' && <span className="text-xs">ON</span>}
                     </button>
 
-                    {/* 🌟 UPGRADED SUB-MENU */}
                     {activeTool === 'AREA' && (
                         <div className="bg-slate-900/60 rounded-xl p-4 mb-4 border border-slate-700 animate-fade-in-down shadow-inner">
-                            
-                            {/* CAD Toggles (Ortho / Osnap) */}
                             <div className="flex gap-2 mb-4">
                                 <button 
                                     onClick={() => setOrthoEnabled(!orthoEnabled)}
@@ -279,6 +402,13 @@ const StructuralEditor = () => {
                 </div>
                 <StructuralApsViewer ref={viewerRef} urn={decodeURIComponent(urn)} scaleFactor={scaleFactor} isViewLocked={false} />
             </div>
+
+            {/* 🌟 RIGHT SIDEBAR: Now feeds ONLY the active floor's data */}
+            <AreaDetailsSidebar 
+                savedAreas={activeFloorAreas} 
+                onDeleteArea={handleDeleteArea} 
+                onRenameArea={handleRenameArea} 
+            />
 
         </div>
     );
