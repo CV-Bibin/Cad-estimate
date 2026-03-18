@@ -16,10 +16,12 @@ export default class AreaDrawingTool {
 
         // Draw Mode Data
         this.points = [];
+        this.redoPoints = [];
         this.meshes = []; 
 
         // 🌟 Edit Mode Data
         this.savedAreas = []; 
+        this.editingAreaId = null; // 🌟 Tracks which specific area is being edited
         this.editHandles = []; // 3D spheres on the corners
         this.draggedNode = null; // Which corner is being dragged
 
@@ -36,13 +38,25 @@ export default class AreaDrawingTool {
     setToggles(ortho, osnap) { this.orthoEnabled = ortho; this.osnapEnabled = osnap; }
     setSnapPoints() {} // Ignored
 
-    // 🌟 Switch between Drawing new rooms and Editing old ones
+  
+  // 🌟 Switch between Drawing new rooms and Editing old ones
     setMode(newMode) {
+        if (this.mode === newMode) return;
         this.mode = newMode;
         this.points = [];
         this.draggedNode = null;
         this.clearVisuals();
+
+        // 🌟 FIX: Instantly update the mouse cursor!
+        if (this.viewer && this.viewer.canvas) {
+            this.viewer.canvas.style.cursor = this.mode === 'EDIT' ? 'pointer' : 'crosshair';
+        }
+
         if (this.mode === 'EDIT') this.drawEditHandles();
+    }
+
+    setEditingAreaId(id) {
+        this.editingAreaId = id;
     }
 
     // 🌟 Feed the saved rooms into the tool so we can edit them
@@ -88,12 +102,36 @@ export default class AreaDrawingTool {
         window.removeEventListener('keydown', this.onKeyDown);
     }
 
-    onKeyDown(event) { 
+   onKeyDown(event) {
+        const isCtrl = event.ctrlKey || event.metaKey; // Support Windows (Ctrl) and Mac (Cmd)
+
+        // 1. ESCAPE: Cancel current drawing
         if (event.key === 'Escape') {
-            this.points = []; 
+            this.points = [];
+            this.redoPoints = [];
             this.draggedNode = null;
             this.clearVisuals();
             if (this.mode === 'EDIT') this.drawEditHandles();
+        }
+
+        // 2. UNDO: Ctrl + Z
+        if (isCtrl && event.key.toLowerCase() === 'z') {
+            if (this.mode === 'DRAW' && this.points.length > 0) {
+                event.preventDefault(); // Stop browser from doing its own undo
+                const lastPoint = this.points.pop(); // Remove last point
+                this.redoPoints.push(lastPoint);     // Save it to redo stack
+                this.drawDynamicVisuals(null);       // Refresh the lines on screen
+            }
+        }
+
+        // 3. REDO: Ctrl + Y
+        if (isCtrl && event.key.toLowerCase() === 'y') {
+            if (this.mode === 'DRAW' && this.redoPoints.length > 0) {
+                event.preventDefault();
+                const pointToRestore = this.redoPoints.pop(); // Take from redo stack
+                this.points.push(pointToRestore);             // Put back in points
+                this.drawDynamicVisuals(null);                // Refresh
+            }
         }
     }
 
@@ -127,12 +165,17 @@ export default class AreaDrawingTool {
 
         let finalPt = { x: pt.x, y: pt.y, z: 0 };
 
-        // Ortho Logic
-        if (this.orthoEnabled && this.points.length > 0 && !(this.snapper && this.snapper.isSnapped()) && !this.draggedNode) {
+        // 🌟 STRICT ORTHO LOGIC (Restored)
+        // Notice we removed the "!(this.snapper.isSnapped())" exception!
+        if (this.orthoEnabled && this.points.length > 0 && !this.draggedNode) {
             const lastPt = this.points[this.points.length - 1];
-            if (Math.abs(finalPt.x - lastPt.x) > Math.abs(finalPt.y - lastPt.y)) finalPt.y = lastPt.y; 
-            else finalPt.x = lastPt.x; 
+            if (Math.abs(finalPt.x - lastPt.x) > Math.abs(finalPt.y - lastPt.y)) {
+                finalPt.y = lastPt.y; // Force Horizontal
+            } else {
+                finalPt.x = lastPt.x; // Force Vertical
+            }
         }
+        
         return finalPt;
     }
 
@@ -152,58 +195,99 @@ export default class AreaDrawingTool {
         this.viewer.overlays.addMesh(this.osnapMesh, 'area-tool-scene');
     }
 
-    // 🌟 EDIT MODE: Draw yellow draggable spheres on corners
+    // 🌟 EDIT MODE: Draw CAD-style target markers on corners
     drawEditHandles() {
         this.editHandles.forEach(h => this.viewer.overlays.removeMesh(h, 'area-tool-scene'));
         this.editHandles = [];
 
         this.savedAreas.forEach(area => {
+            // Skip drawing markers if this isn't the specific room we clicked!
+            if (this.editingAreaId && area.id !== this.editingAreaId) return;
+
             area.points.forEach((pt, index) => {
                 const dist = this.viewer.impl.camera.position.distanceTo(pt);
-                const size = dist * 0.006; 
+                const size = dist * 0.015; // Target size
+
+                // 🌟 Create a Group to hold the 3 parts of our CAD marker
+                const handleGroup = new THREE.Group();
+
+                // 1. Inner Fill (Low opacity gold)
+                const fillGeo = new THREE.CircleGeometry(size, 32);
+                const fillMat = new THREE.MeshBasicMaterial({ color: 0xFFD700, transparent: true, opacity: 0.25, depthTest: false, side: THREE.DoubleSide });
+                const fillMesh = new THREE.Mesh(fillGeo, fillMat);
+
+                // 2. Outer Stroke (Solid gold ring)
+                const strokeGeo = new THREE.RingGeometry(size * 0.85, size, 32);
+                const strokeMat = new THREE.MeshBasicMaterial({ color: 0xFFD700, depthTest: false, side: THREE.DoubleSide });
+                const strokeMesh = new THREE.Mesh(strokeGeo, strokeMat);
+
+                // 3. Center Dot (Solid red point)
+                const dotGeo = new THREE.CircleGeometry(size * 0.15, 16);
+                const dotMat = new THREE.MeshBasicMaterial({ color: 0xFF0000, depthTest: false, side: THREE.DoubleSide });
+                const dotMesh = new THREE.Mesh(dotGeo, dotMat);
+
+                // Assemble the target
+                handleGroup.add(fillMesh);
+                handleGroup.add(strokeMesh);
+                handleGroup.add(dotMesh);
+
+                // 🌟 IMPORTANT: Attach the ID data to ALL parts so the laser pointer can grab any piece of it!
+                const targetData = { areaId: area.id, pointIndex: index };
+                handleGroup.userData = targetData;
+                fillMesh.userData = targetData;
+                strokeMesh.userData = targetData;
+                dotMesh.userData = targetData;
+
+                // Move the whole target to the corner
+                handleGroup.position.set(pt.x, pt.y, 0.1);
                 
-                const geo = new THREE.SphereGeometry(size, 16, 16);
-                const mat = new THREE.MeshPhongMaterial({ color: 0xFFD700, depthTest: false }); // Yellow
-                const sphere = new THREE.Mesh(geo, mat);
-                
-                sphere.position.set(pt.x, pt.y, 0.1);
-                // Attach data so we know exactly which point of which area to move!
-                sphere.userData = { areaId: area.id, pointIndex: index }; 
-                
-                this.viewer.overlays.addMesh(sphere, 'area-tool-scene');
-                this.editHandles.push(sphere);
+                this.viewer.overlays.addMesh(handleGroup, 'area-tool-scene');
+                this.editHandles.push(handleGroup);
             });
         });
         this.viewer.impl.invalidate(true, true, true);
     }
 
-    // 🌟 MOUSE DOWN: Start dragging a point
+    // 🌟 MOUSE DOWN: Grab the corner to edit it
     handleButtonDown(event, button) {
         if (button !== 0 || !this.active) return false;
 
         if (this.mode === 'EDIT') {
-            // 3D Raycasting to find if we clicked a yellow sphere
-            const rect = this.viewer.impl.getCanvasBoundingClientRect();
-            const cx = event.clientX - rect.left;
-            const cy = event.clientY - rect.top;
-            const normX = (cx / rect.width) * 2 - 1;
-            const normY = -(cy / rect.height) * 2 + 1;
+            const canvas = this.viewer.canvas;
+            if (!canvas) return true;
+
+            // 1. Calculate perfectly centered Normalized Device Coordinates (-1 to +1)
+            const x = (event.canvasX / canvas.clientWidth) * 2 - 1;
+            const y = -(event.canvasY / canvas.clientHeight) * 2 + 1; // 🌟 Math fixed here! (+1 instead of -1)
 
             const raycaster = new THREE.Raycaster();
-            raycaster.setFromCamera({ x: normX, y: normY }, this.viewer.impl.camera);
-            const intersects = raycaster.intersectObjects(this.editHandles);
+            const camera = this.viewer.impl.camera;
+
+            // 🌟 2. THE FIX: Manually construct the 3D Ray to bypass the "Unsupported Camera" crash!
+            if (camera.isPerspective) {
+                raycaster.ray.origin.setFromMatrixPosition(camera.matrixWorld);
+                raycaster.ray.direction.set(x, y, 0.5).unproject(camera).sub(raycaster.ray.origin).normalize();
+            } else {
+                raycaster.ray.origin.set(x, y, -1).unproject(camera);
+                raycaster.ray.direction.set(0, 0, -1).transformDirection(camera.matrixWorld);
+            }
+
+            // 3. Check if we hit any of the yellow spheres
+            const intersects = raycaster.intersectObjects(this.editHandles, true);
 
             if (intersects.length > 0) {
-                // We grabbed a handle!
+                // We successfully grabbed a handle!
                 this.draggedNode = intersects[0].object.userData;
-                this.viewer.canvas.style.cursor = 'grabbing';
-                return true; // Consume click
+                canvas.style.cursor = 'grabbing';
+                return true; // Consume the click so the camera doesn't orbit
             }
-            return false;
+            
+            // Consume click even if we missed, so we don't accidentally pan the camera
+            return true; 
         }
+        
         return false;
     }
-
     // 🌟 MOUSE MOVE: Move the point
     handleMouseMove(event) {
         if (!this.active) return false;
@@ -242,6 +326,7 @@ export default class AreaDrawingTool {
     }
 
     // 🌟 MOUSE UP: Save the edited point!
+  // 🌟 MOUSE UP: Save the edited point!
     handleButtonUp(event, button) {
         if (button !== 0 || !this.active) return false;
 
@@ -252,14 +337,18 @@ export default class AreaDrawingTool {
                 if (area) {
                     const newPoints = [...area.points];
                     newPoints[this.draggedNode.pointIndex] = pt;
-                    // Fire callback to React to recalculate math!
+                    
+                    // 🌟 FIX: Instantly update the local tool memory so it doesn't wait for React!
+                    area.points = newPoints; 
+                    
+                    // Fire callback to React to recalculate math
                     if (this.onAreaUpdated) this.onAreaUpdated(area.id, newPoints);
                 }
             }
             this.draggedNode = null;
             this.viewer.canvas.style.cursor = 'pointer';
             this.clearVisuals();
-            this.drawEditHandles(); // Redraw handles in new positions
+            this.drawEditHandles(); // Redraw handles in NEW positions
             return true;
         }
         return false;
@@ -286,6 +375,7 @@ export default class AreaDrawingTool {
             }
         }
         this.points.push(pt);
+        this.redoPoints = [];
         this.drawDynamicVisuals(null); 
         return true;
     }

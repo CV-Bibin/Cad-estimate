@@ -13,22 +13,27 @@ const StructuralApsViewer = forwardRef(({ urn, scaleFactor = 1, isViewLocked = f
         updateSettings: (settings) => {
             if (!viewerRef.current || !viewerRef.current.toolController) return;
 
-           // 🌟 FORCE TOOL ACTIVATION
             if (settings.activeTool === 'AREA') {
                 if (areaToolRef.current) {
+                    // 1. Feed all the updated UI states into the tool
+                    areaToolRef.current.setMode(settings.areaMode || 'DRAW');
+                    areaToolRef.current.setSavedAreas(settings.drawnAreas);
                     areaToolRef.current.setZoneType(settings.zoneType);
+                    areaToolRef.current.setToggles(settings.orthoEnabled, settings.osnapEnabled);
+                    areaToolRef.current.setEditingAreaId(settings.editingAreaId);
+                    areaToolRef.current.setSavedAreas(settings.drawnAreas);
                     
                     if (settings.snapPoints) areaToolRef.current.setSnapPoints(settings.snapPoints);
                     
-                    // 🌟 Send the UI Toggles to the Math Script!
-                    areaToolRef.current.setToggles(settings.orthoEnabled, settings.osnapEnabled);
-                    
-                    if (!viewerRef.current.toolController.getTool(areaToolRef.current.getName())) {
+                    // 2. Register tool if it's missing
+                    const toolName = areaToolRef.current.getName();
+                    if (!viewerRef.current.toolController.getTool(toolName)) {
                         viewerRef.current.toolController.registerTool(areaToolRef.current);
                     }
-                    viewerRef.current.toolController.activateTool(areaToolRef.current.getName());
+                    
+                    // 3. Safely activate
+                    viewerRef.current.toolController.activateTool(toolName);
                 }
-            
             } else {
                 // Turn it off
                 if (areaToolRef.current) {
@@ -185,14 +190,21 @@ const StructuralApsViewer = forwardRef(({ urn, scaleFactor = 1, isViewLocked = f
             viewer.start();
             viewerRef.current = viewer;
 
-            // 🌟 FIX: CREATE AND REGISTER THE TOOL IMMEDIATELY (Do not wait for extensions!)
-            console.log("🛠️ ENGINE: Creating AreaDrawingTool...");
-            areaToolRef.current = new AreaDrawingTool(viewer, (points, zoneType) => {
-                window.dispatchEvent(new CustomEvent('AREA_COMPLETED', {
-                    detail: { points, zoneType, id: Date.now() + Math.random() }
-                    
-                }));
-            });
+          areaToolRef.current = new AreaDrawingTool(
+                viewer, 
+                // Draw Callback
+                (points, zoneType) => {
+                    window.dispatchEvent(new CustomEvent('AREA_COMPLETED', {
+                        detail: { points, zoneType, id: Date.now() + Math.random() }
+                    }));
+                },
+                // 🌟 NEW Edit Callback
+                (areaId, newPoints) => {
+                    window.dispatchEvent(new CustomEvent('AREA_UPDATED', {
+                        detail: { id: areaId, points: newPoints }
+                    }));
+                }
+            );
             viewer.toolController.registerTool(areaToolRef.current);
             console.log("🛠️ ENGINE: Area Tool Registered Successfully!");
 
