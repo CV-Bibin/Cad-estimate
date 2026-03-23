@@ -105,18 +105,20 @@ const Editor = () => {
 
 
     // 🌟 NEW: SAVE TO FIREBASE FUNCTION
-    // 🌟 UPDATED: SAVE USING THE REUSABLE COMPONENT
+    // 🌟 UPDATED: SAVE TO FIREBASE FUNCTION (No Data Loss!)
     const saveProjectToFirebase = async () => {
         showWarning("⏳ Saving project to cloud...");
 
-        // Bundle up whatever you want to save from this screen
+        // 👉 THIS IS THE LINE ESLINT WAS LOOKING FOR:
+        const existingData = await loadProjectData(urn) || {};
+
         const dataToSave = {
+            ...existingData, // 🌟 Safely packs the old rooms/columns
             floors: floors,
             scaleFactor: scaleFactor,
             isCalibrated: isCalibrated
         };
 
-        // Send it to your reusable function!
         const success = await saveProjectData(urn, dataToSave);
 
         if (success) {
@@ -531,7 +533,9 @@ const Editor = () => {
         setIsFloorConfirmOpen(false); // Close the modal
         showWarning(`🏢 Successfully created and switched to ${newFloor.name}`);
     };
- // 🌟 HANDLE SKIPPING TO STAGE 2 (WITH AUTO-SAVE)
+
+    
+ // 🌟 HANDLE SKIPPING TO STAGE 2 (WITH SAFE AUTO-SAVE)
     const handleNextStep = async () => {
         if (floors[0].walls.length === 0) {
             showWarning("⚠️ CAUTION: You haven't drawn any walls to estimate yet!");
@@ -540,23 +544,25 @@ const Editor = () => {
 
         showWarning("⏳ Auto-saving draft before continuing...");
 
-        // 1. Bundle up your current walls
+        // 👉 THIS IS THE LINE ESLINT WAS LOOKING FOR:
+        const existingData = await loadProjectData(urn) || {};
+
         const dataToSave = {
+            ...existingData, // 🌟 Safely packs the old rooms/columns
             floors: floors,
             scaleFactor: scaleFactor,
             isCalibrated: isCalibrated
         };
 
-        // 2. Force a cloud save BEFORE we jump to the next page
         const success = await saveProjectData(urn, dataToSave);
 
         if (success) {
-            // 3. Now that Firebase definitely has the walls, jump to Stage 2!
             navigate(`/structure/${encodeURIComponent(urn)}`);
         } else {
             showWarning("❌ Error saving to cloud. Cannot proceed.");
         }
     };
+
 
     return (
         <div className="flex h-screen bg-slate-900 font-sans overflow-hidden relative">

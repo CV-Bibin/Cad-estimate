@@ -1,11 +1,59 @@
 /* global Autodesk, THREE */
 import React, { useEffect, useRef, useImperativeHandle, forwardRef } from 'react';
 import AreaDrawingTool from './tools/AreaDrawingTool/AreaDrawingTool';
+import { ColumnDrawingTool } from './tools/ColumnDrawingTool';
 
 const StructuralApsViewer = forwardRef(({ urn, scaleFactor = 1, isViewLocked = false }, ref) => {
     const containerRef = useRef(null);
     const viewerRef = useRef(null);
-    const areaToolRef = useRef(null); // Holds our tool!
+    const areaToolRef = useRef(null); 
+
+    // 🌟 HELPER: Draw Columns (Box or Upright Cylinder)
+    const drawSolidColumnsHelper = (columns) => {
+        try {
+            if (!viewerRef.current || !viewerRef.current.impl) return;
+            
+            if (!viewerRef.current.overlays.hasScene('column-scene')) {
+                viewerRef.current.overlays.addScene('column-scene');
+            } else {
+                viewerRef.current.overlays.removeScene('column-scene');
+                viewerRef.current.overlays.addScene('column-scene');
+            }
+
+            columns.forEach(col => {
+                const height = 3.0 / scaleFactor; 
+                const material = new THREE.MeshBasicMaterial({ color: 0xa855f7, depthTest: false }); 
+                let mesh;
+
+                if (col.shape === 'CIRCULAR') {
+                    // 🌟 1. Create the Cylinder
+                    const radius = (col.radius || 0.1) / scaleFactor;
+                    const geometry = new THREE.CylinderGeometry(radius, radius, height, 32);
+                    
+                    // 🌟 2. Stand it Upright! (Safest method for Autodesk's older 3D engine)
+                    const matrix = new THREE.Matrix4().makeRotationX(Math.PI / 2);
+                    geometry.applyMatrix(matrix);
+
+                    mesh = new THREE.Mesh(geometry, material);
+                    mesh.position.set(col.x, col.y, height / 2); 
+                } else {
+                    // 🌟 DRAW BOX (For FREE or ORTHO modes)
+                    const width = (col.width || 0.2) / scaleFactor;
+                    const depth = (col.depth || 0.2) / scaleFactor;
+                    const geometry = new THREE.BoxGeometry(width, depth, height);
+                    
+                    mesh = new THREE.Mesh(geometry, material);
+                    mesh.position.set(col.x, col.y, height / 2); 
+                    mesh.rotation.z = col.rotation || 0; 
+                }
+                
+                viewerRef.current.overlays.addMesh(mesh, 'column-scene');
+            });
+            viewerRef.current.impl.invalidate(true, true, true);
+        } catch (e) {
+            console.error("Error drawing columns:", e);
+        }
+    };
 
     useImperativeHandle(ref, () => ({
         viewer: viewerRef.current,
@@ -13,32 +61,49 @@ const StructuralApsViewer = forwardRef(({ urn, scaleFactor = 1, isViewLocked = f
         updateSettings: (settings) => {
             if (!viewerRef.current || !viewerRef.current.toolController) return;
 
+            // --- 1. AREA TOOL LOGIC ---
             if (settings.activeTool === 'AREA') {
                 if (areaToolRef.current) {
-                    // 1. Feed all the updated UI states into the tool
                     areaToolRef.current.setMode(settings.areaMode || 'DRAW');
                     areaToolRef.current.setSavedAreas(settings.drawnAreas);
                     areaToolRef.current.setZoneType(settings.zoneType);
                     areaToolRef.current.setToggles(settings.orthoEnabled, settings.osnapEnabled);
                     areaToolRef.current.setEditingAreaId(settings.editingAreaId);
-                    areaToolRef.current.setSavedAreas(settings.drawnAreas);
                     
-                    if (settings.snapPoints) areaToolRef.current.setSnapPoints(settings.snapPoints);
-                    
-                    // 2. Register tool if it's missing
                     const toolName = areaToolRef.current.getName();
                     if (!viewerRef.current.toolController.getTool(toolName)) {
                         viewerRef.current.toolController.registerTool(areaToolRef.current);
                     }
-                    
-                    // 3. Safely activate
                     viewerRef.current.toolController.activateTool(toolName);
                 }
             } else {
-                // Turn it off
-                if (areaToolRef.current) {
-                    viewerRef.current.toolController.deactivateTool(areaToolRef.current.getName());
-                }
+                if (areaToolRef.current) viewerRef.current.toolController.deactivateTool(areaToolRef.current.getName());
+            }
+
+            // --- 2. COLUMN TOOL LOGIC ---
+            if (!viewerRef.current.toolController.getTool('column-drawing-tool')) {
+                const colTool = new ColumnDrawingTool(viewerRef.current);
+                viewerRef.current.toolController.registerTool(colTool);
+            }
+
+            const colTool = viewerRef.current.toolController.getTool('column-drawing-tool');
+            if (colTool) {
+                if (colTool.setToggles) colTool.setToggles(settings.orthoEnabled, settings.osnapEnabled);
+                if (colTool.setScaleFactor) colTool.setScaleFactor(scaleFactor);
+            }
+
+            // Route the specific column mode (FREE, ORTHO, CIRCULAR)
+            if (settings.activeTool && settings.activeTool.startsWith('COLUMN')) {
+                const mode = settings.activeTool.split('_')[1]; 
+                if (colTool) colTool.setColumnMode(mode);
+                viewerRef.current.toolController.activateTool('column-drawing-tool');
+            } else {
+                viewerRef.current.toolController.deactivateTool('column-drawing-tool');
+            }
+
+            // --- 3. DRAW PLACED COLUMNS ---
+            if (settings.placedColumns && viewerRef.current) {
+                drawSolidColumnsHelper(settings.placedColumns);
             }
         },
 
@@ -62,7 +127,6 @@ const StructuralApsViewer = forwardRef(({ urn, scaleFactor = 1, isViewLocked = f
             }
         },
 
-        // 🌟 DRAW BLUEPRINT WALLS
         drawSolidWall: (wall, hoveredOpeningId, isActiveFloor = true, isBlueprint = true) => {
             try {
                 if (!viewerRef.current || !viewerRef.current.model || !wall || !wall.points || !wall.points.p1 || !wall.points.p2) return;
@@ -137,7 +201,6 @@ const StructuralApsViewer = forwardRef(({ urn, scaleFactor = 1, isViewLocked = f
             }
         },
 
-        // 🌟 DRAW COLORED POLYGONS ON THE FLOOR
         drawSolidArea: (area) => {
             try {
                 if (!viewerRef.current || !area || !area.points || area.points.length < 3) return;
@@ -190,15 +253,13 @@ const StructuralApsViewer = forwardRef(({ urn, scaleFactor = 1, isViewLocked = f
             viewer.start();
             viewerRef.current = viewer;
 
-          areaToolRef.current = new AreaDrawingTool(
+            areaToolRef.current = new AreaDrawingTool(
                 viewer, 
-                // Draw Callback
                 (points, zoneType) => {
                     window.dispatchEvent(new CustomEvent('AREA_COMPLETED', {
                         detail: { points, zoneType, id: Date.now() + Math.random() }
                     }));
                 },
-                // 🌟 NEW Edit Callback
                 (areaId, newPoints) => {
                     window.dispatchEvent(new CustomEvent('AREA_UPDATED', {
                         detail: { id: areaId, points: newPoints }
@@ -206,9 +267,7 @@ const StructuralApsViewer = forwardRef(({ urn, scaleFactor = 1, isViewLocked = f
                 }
             );
             viewer.toolController.registerTool(areaToolRef.current);
-            console.log("🛠️ ENGINE: Area Tool Registered Successfully!");
 
-            // Now load the document normally
             Autodesk.Viewing.Document.load(`urn:${urn}`,
                 (doc) => {
                     try {
@@ -233,9 +292,7 @@ const StructuralApsViewer = forwardRef(({ urn, scaleFactor = 1, isViewLocked = f
                             viewerRef.current.setEnvMapBackground(false);
                         }).catch(() => {});
 
-                    } catch (e) {
-                        console.warn("Ghost document gracefully ignored.");
-                    }
+                    } catch (e) {}
                 },
                 (errorCode) => {
                     if (!isActive) return;
