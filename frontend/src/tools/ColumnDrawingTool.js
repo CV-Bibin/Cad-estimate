@@ -6,16 +6,15 @@ export class ColumnDrawingTool {
         this.names = ['column-drawing-tool'];
         this.active = false;
         
-        // Settings
         this.orthoEnabled = false;
         this.osnapEnabled = true;
         this.scaleFactor = 1; 
-        this.columnMode = 'FREE'; // 🌟 'FREE', 'ORTHO', or 'CIRCULAR'
+        this.columnMode = 'FREE'; 
 
-        // Draw Mode Data
         this.points = [];
         this.redoPoints = [];
         this.meshes = []; 
+        this.snapPoints = []; // 🌟 Holds custom snap points (centers & corners)
 
         this.snapper = null;
         this.osnapMesh = null;
@@ -27,8 +26,8 @@ export class ColumnDrawingTool {
     getName() { return this.names[0]; }
     setToggles(ortho, osnap) { this.orthoEnabled = ortho; this.osnapEnabled = osnap; }
     setScaleFactor(sf) { this.scaleFactor = sf || 1; }
+    updateSnapPoints(pts) { this.snapPoints = pts || []; } // 🌟 Receive points from Editor
     
-    // 🌟 Set the active drawing mode
     setColumnMode(mode) { 
         this.columnMode = mode; 
         this.points = []; 
@@ -95,23 +94,52 @@ export class ColumnDrawingTool {
         this.viewer.impl.invalidate(true, true, true);
     }
 
+    // 🌟 UPGRADED SNAP ENGINE
     getBestPoint(event) {
         let pt = null;
+        let snapType = 'none';
+
+        // 1. Check Native Autodesk Snapper (Walls & Blueprints)
         if (this.osnapEnabled && this.snapper && this.snapper.isSnapped()) {
             const res = this.snapper.getSnapResult();
             if (res.geomVertex) pt = res.geomVertex;
             else if (res.intersectPoint) pt = res.intersectPoint;
+            snapType = res.geomType === 2 ? 'midpoint' : 'endpoint';
         }
+
+        // 2. Fallback to Ground hit
         if (!pt) {
             const hit = this.viewer.impl.hitTest(event.canvasX, event.canvasY, true);
             if (hit) pt = hit.intersectPoint;
             else pt = this.viewer.impl.intersectGround(event.canvasX, event.canvasY);
         }
-        if (!pt) return null;
+
+        if (!pt) return { point: null, snapType: 'none' };
+
+        // 🌟 3. CHECK CUSTOM OVERLAY SNAPS (Circle Centers!)
+        if (this.osnapEnabled && this.snapPoints && this.snapPoints.length > 0) {
+            let closestDist = Infinity;
+            let closestSp = null;
+            const magneticRadius = 0.4 / this.scaleFactor; // 40cm snap radius
+
+            this.snapPoints.forEach(sp => {
+                const dist = Math.sqrt(Math.pow(sp.x - pt.x, 2) + Math.pow(sp.y - pt.y, 2));
+                if (dist < magneticRadius && dist < closestDist) {
+                    closestDist = dist;
+                    closestSp = sp;
+                }
+            });
+
+            if (closestSp) {
+                pt.x = closestSp.x;
+                pt.y = closestSp.y;
+                snapType = closestSp.isCircleCenter ? 'center' : 'endpoint';
+            }
+        }
 
         let finalPt = { x: pt.x, y: pt.y, z: pt.z || 0 };
 
-        // Ortho override only applies in Free mode
+        // Apply Ortho if Free mode
         if (this.orthoEnabled && this.points.length > 0 && this.columnMode === 'FREE') {
             const lastPt = this.points[this.points.length - 1];
             if (Math.abs(finalPt.x - lastPt.x) > Math.abs(finalPt.y - lastPt.y)) {
@@ -120,22 +148,41 @@ export class ColumnDrawingTool {
                 finalPt.x = lastPt.x; 
             }
         }
-        return finalPt;
+        
+        return { point: finalPt, snapType }; // Return object so we know WHAT we snapped to
     }
 
+    // 🌟 UPGRADED INDICATOR: Draws specific shapes for Centers
     drawOsnapIndicator(pos, snapType) {
         if (this.osnapMesh) {
             this.viewer.overlays.removeMesh(this.osnapMesh, 'column-tool-scene');
             this.osnapMesh = null;
         }
         if (!pos || snapType === 'none') return;
+
         const dist = this.viewer.impl.camera.position.distanceTo(pos);
         const size = dist * 0.005; 
-        const color = snapType === 'midpoint' ? 0x00FFFF : 0x00FF00;
-        let geom = snapType === 'midpoint' ? new THREE.CylinderGeometry(size, size, 0.01, 3) : new THREE.BoxGeometry(size * 1.5, size * 1.5, 0.01);
-        if (snapType === 'midpoint') geom.rotateX(Math.PI / 2);
         
-        this.osnapMesh = new THREE.Mesh(geom, new THREE.MeshBasicMaterial({ color, depthTest: false, transparent: true, opacity: 0.6 }));
+        let color = 0x00FF00; // Green (Default Endpoint)
+        let geom;
+
+    if (snapType === 'midpoint') {
+            color = 0x00FFFF; // Cyan
+            geom = new THREE.CylinderGeometry(size, size, 0.01, 3);
+            
+            // 🌟 FIX: Use applyMatrix instead of rotateX for the older 3D engine!
+            const matrix = new THREE.Matrix4().makeRotationX(Math.PI / 2);
+            geom.applyMatrix(matrix);
+            
+        } else if (snapType === 'center') {
+            // 🌟 CENTER SNAP: Orange Ring
+            color = 0xFF9900; // Orange
+            geom = new THREE.RingGeometry(size * 0.5, size * 1.5, 16);
+        } else {
+            geom = new THREE.BoxGeometry(size * 1.5, size * 1.5, 0.01);
+        }
+        
+        this.osnapMesh = new THREE.Mesh(geom, new THREE.MeshBasicMaterial({ color, depthTest: false, transparent: true, opacity: 0.8 }));
         this.osnapMesh.position.set(pos.x, pos.y, 0.05 / this.scaleFactor); 
         this.viewer.overlays.addMesh(this.osnapMesh, 'column-tool-scene');
     }
@@ -144,17 +191,13 @@ export class ColumnDrawingTool {
         if (!this.active) return false;
         if (this.snapper) this.snapper.handleMouseMove(event);
 
-        let snapType = 'none';
-        if (this.snapper && this.snapper.isSnapped()) snapType = this.snapper.getSnapResult().geomType === 2 ? 'midpoint' : 'endpoint';
-
-        const pt = this.getBestPoint(event);
-        if (pt) this.drawOsnapIndicator(pt, snapType);
-
+        const { point: pt, snapType } = this.getBestPoint(event);
+        
+        this.drawOsnapIndicator(pt, snapType);
         if (pt) this.drawDynamicVisuals(pt);
         return false; 
     }
 
-    // Math for 3-Point Free Column
     calculateOrientedColumn(p0, p1, p2) {
         const dx = p1.x - p0.x;
         const dy = p1.y - p0.y;
@@ -177,12 +220,11 @@ export class ColumnDrawingTool {
     handleSingleClick(event, button) {
         if (button !== 0 || !this.active) return false;
 
-        const pt = this.getBestPoint(event);
+        const { point: pt } = this.getBestPoint(event);
         if (!pt) return false;
 
         this.points.push(pt);
 
-        // 🌟 ROUTING LOGIC based on tool mode
         if (this.columnMode === 'ORTHO') {
             if (this.points.length === 2) {
                 const minX = Math.min(this.points[0].x, this.points[1].x);
@@ -245,7 +287,6 @@ export class ColumnDrawingTool {
 
         const zLayerLine = 0.04 / this.scaleFactor;
 
-        // 🌟 DRAW PREVIEWS BASED ON MODE
         if (this.columnMode === 'ORTHO' && pts.length === 2) {
             const minX = Math.min(pts[0].x, pts[1].x);
             const maxX = Math.max(pts[0].x, pts[1].x);
@@ -290,7 +331,6 @@ export class ColumnDrawingTool {
             }
         }
 
-        // Draw Start Dot
         if (this.points.length > 0) {
             const dist = this.viewer.impl.camera.position.distanceTo(this.points[0]);
             const dot = new THREE.Mesh(new THREE.CircleGeometry(dist * 0.005, 16), new THREE.MeshBasicMaterial({ color: 0xa855f7, depthTest: false }));

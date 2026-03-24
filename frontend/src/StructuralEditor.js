@@ -7,6 +7,7 @@ import StructuralApsViewer from './StructuralApsViewer';
 import HomeButton from './components/HomeButton';
 import AreaDetailsSidebar from './components/AreaDetailsSidebar';
 import ColumnDetailsSidebar from './components/ColumnDetailsSidebar';
+import BeamDetailsSidebar from './components/BeamDetailsSidebar'; // 🌟 NEW IMPORT
 import SlabDetailsSidebar from './components/SlabDetailsSidebar';
 import StructuralToolbar from './components/StructuralToolbar';
 import StructuralLeftSidebar from './components/StructuralLeftSidebar';
@@ -33,6 +34,7 @@ const StructuralEditor = () => {
     // 🌟 TOOL STATES
     const [activeTool, setActiveTool] = useState('NONE');
     const [structuralMode, setStructuralMode] = useState('COLUMN');
+    const [beamJustification, setBeamJustification] = useState('CENTER');
     const [areaMode, setAreaMode] = useState('DRAW');
     const [appStage, setAppStage] = useState('ARCHITECTURE');
     const [zoneType, setZoneType] = useState('INDOOR');
@@ -45,23 +47,60 @@ const StructuralEditor = () => {
     const [backupAreas, setBackupAreas] = useState([]);
     const [unlockedFromStructural, setUnlockedFromStructural] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
-    
+
     // 🌟 STRUCTURAL ELEMENT STATES
     const [placedColumns, setPlacedColumns] = useState([]);
+    const [placedBeams, setPlacedBeams] = useState([]); // 🌟 ADDED BEAM STATE
     const [placedSlabs, setPlacedSlabs] = useState([]);
 
-    // 🌟 EXTRACT CORNERS FOR OSNAP
+    // 🌟 Master Snap Engine: Corners, Centers, and Faces with Data
     const snapPoints = React.useMemo(() => {
         let pts = [];
         const activeFloor = archFloors[currentFloorIndex];
+        
         if (activeFloor && activeFloor.walls) {
             activeFloor.walls.forEach(wall => {
-                if (wall.points && wall.points.p1) pts.push(wall.points.p1);
-                if (wall.points && wall.points.p2) pts.push(wall.points.p2);
+                if (wall.points?.p1) pts.push({ ...wall.points.p1, colSize: 0.23, type: 'wall' });
+                if (wall.points?.p2) pts.push({ ...wall.points.p2, colSize: 0.23, type: 'wall' });
             });
         }
+        
+        placedColumns.forEach(col => {
+            if (col.floorIndex !== currentFloorIndex) return;
+            
+            const colSize = col.shape === 'CIRCULAR' ? (col.radius * 2) : Math.min(col.width, col.depth);
+
+            if (col.shape === 'CIRCULAR') {
+                pts.push({ x: col.x, y: col.y, isCenter: true, colSize });
+            } else {
+                // 🌟 FIX: Convert real-world width/depth to Viewer scale for the snap points!
+                const hw = (col.width / scaleFactor) / 2;
+                const hd = (col.depth / scaleFactor) / 2;
+                const angle = col.rotation || 0;
+                const cosA = Math.cos(angle); 
+                const sinA = Math.sin(angle);
+
+                const addPt = (lx, ly, type) => {
+                    pts.push({
+                        x: col.x + (lx * cosA - ly * sinA),
+                        y: col.y + (lx * sinA + ly * cosA),
+                        isCorner: type === 'corner', 
+                        isFace: type === 'face', 
+                        isCenter: type === 'center',
+                        colSize: colSize 
+                    });
+                };
+
+                addPt(0, 0, 'center');
+                addPt(-hw, -hd, 'corner'); addPt(hw, -hd, 'corner'); 
+                addPt(hw, hd, 'corner'); addPt(-hw, hd, 'corner');
+                addPt(0, -hd, 'face'); addPt(hw, 0, 'face'); 
+                addPt(0, hd, 'face'); addPt(-hw, 0, 'face');
+            }
+        });
+        
         return pts;
-    }, [archFloors, currentFloorIndex]);
+    }, [archFloors, currentFloorIndex, placedColumns, scaleFactor]); 
 
     const processCenterlines = (rawFloors) => {
         const SNAP_TOLERANCE = 0.15;
@@ -109,6 +148,7 @@ const StructuralEditor = () => {
                 if (data.scaleFactor) setScaleFactor(data.scaleFactor);
                 if (data.drawnAreas) setDrawnAreas(data.drawnAreas);
                 if (data.placedColumns) setPlacedColumns(data.placedColumns);
+                if (data.placedBeams) setPlacedBeams(data.placedBeams); // 🌟 LOAD BEAMS
                 if (data.placedSlabs) setPlacedSlabs(data.placedSlabs);
                 setTimeout(() => setIsProcessing(false), 500);
             } else {
@@ -139,23 +179,26 @@ const StructuralEditor = () => {
                 activeTool: activeTool,
                 areaMode: areaMode,
                 drawnAreas: drawnAreas.filter(a => a.floorIndex === currentFloorIndex),
-                
-                // 🌟 NEW: Pass the active columns down to the 3D Viewer!
-                placedColumns: placedColumns.filter(c => c.floorIndex === currentFloorIndex), 
-                
+
+                placedColumns: placedColumns.filter(c => c.floorIndex === currentFloorIndex),
+                placedBeams: placedBeams.filter(b => b.floorIndex === currentFloorIndex),
+
                 editingAreaId: editingAreaId,
+                beamJustification: beamJustification,
                 zoneType: zoneType,
                 snapPoints: snapPoints,
                 orthoEnabled: orthoEnabled,
                 osnapEnabled: osnapEnabled
             });
         }
-    }, [activeTool, areaMode, zoneType, snapPoints, orthoEnabled, osnapEnabled, viewerReady, drawnAreas, editingAreaId, currentFloorIndex, placedColumns]); 
+    }, [activeTool, areaMode, zoneType, snapPoints, orthoEnabled, osnapEnabled, viewerReady, drawnAreas, editingAreaId, currentFloorIndex, placedColumns, placedBeams, beamJustification]); 
 
     // 🌟 EVENT LISTENERS
     useEffect(() => {
         const handleArea = (e) => {
             setDrawnAreas(prevAreas => {
+                const handleBeamJustify = (e) => setBeamJustification(e.detail);
+                window.addEventListener('BEAM_JUSTIFY_SYNC', handleBeamJustify);
                 const currentFloorWalls = archFloors[currentFloorIndex]?.walls || [];
                 const newAreaDetails = calculateAreaDetails(e.detail.points || e.detail, e.detail.zoneType || zoneType, scaleFactor, currentFloorWalls);
                 if (newAreaDetails) {
@@ -181,46 +224,73 @@ const StructuralEditor = () => {
                 return area;
             }));
         };
-const handleColumnEvent = (e) => setPlacedColumns(prev => [...prev, { 
-            id: Date.now() + Math.random(), 
-            name: `C${prev.length + 1}`, 
-            x: e.detail.x, 
-            y: e.detail.y, 
-            width: e.detail.width || 0.2, 
-            depth: e.detail.depth || 0.2, 
-            radius: e.detail.radius || 0.1, // 🌟 MUST SAVE THE RADIUS!
-            rotation: e.detail.rotation || 0, 
-            shape: e.detail.shape || 'FREE', // 🌟 MUST SAVE THE SHAPE ('CIRCULAR', 'ORTHO', 'FREE')
-            floorIndex: currentFloorIndex 
+
+        const handleColumnEvent = (e) => setPlacedColumns(prev => [...prev, {
+            id: Date.now() + Math.random(),
+            name: `C${prev.length + 1}`,
+            x: e.detail.x,
+            y: e.detail.y,
+            width: e.detail.width || 0.2,
+            depth: e.detail.depth || 0.2,
+            radius: e.detail.radius || 0.1,
+            rotation: e.detail.rotation || 0,
+            shape: e.detail.shape || 'FREE',
+            floorIndex: currentFloorIndex
         }]);
+
+        // 🌟 BEAM CREATION LISTENER
+        const handleBeamEvent = (e) => setPlacedBeams(prev => [...prev, {
+            id: Date.now() + Math.random(),
+            name: `B${prev.length + 1}`,
+            beamType: 'NORMAL',
+            p1: e.detail.p1,
+            p2: e.detail.p2,
+            length: e.detail.length,
+            width: e.detail.width,
+            depth: e.detail.depth,
+            justification: e.detail.justification,
+            floorIndex: currentFloorIndex
+        }]);
+
         const handleSlabEvent = (e) => setPlacedSlabs(prev => [...prev, { id: Date.now() + Math.random(), name: `Span ${prev.length + 1}`, type: activeTool, area: e.detail.area || 10, thickness: 0.15, floorIndex: currentFloorIndex }]);
 
         window.addEventListener('AREA_COMPLETED', handleArea);
         window.addEventListener('AREA_UPDATED', handleAreaEdit);
         window.addEventListener('COLUMN_PLACED', handleColumnEvent);
+        window.addEventListener('BEAM_PLACED', handleBeamEvent); // 🌟 ADDED EVENT
         window.addEventListener('SLAB_PLACED', handleSlabEvent);
 
         return () => {
             window.removeEventListener('AREA_COMPLETED', handleArea);
             window.removeEventListener('AREA_UPDATED', handleAreaEdit);
             window.removeEventListener('COLUMN_PLACED', handleColumnEvent);
+            window.removeEventListener('BEAM_PLACED', handleBeamEvent); // 🌟 REMOVE EVENT
             window.removeEventListener('SLAB_PLACED', handleSlabEvent);
         };
     }, [zoneType, scaleFactor, archFloors, currentFloorIndex, activeTool]);
 
     // 🌟 DELETE / UPDATE HANDLERS
     const handleDeleteArea = (id) => setDrawnAreas(prev => prev.filter(area => area.id !== id));
-    const handleDeleteColumn = (id) => setPlacedColumns(prev => prev.filter(c => c.id !== id));
-const handleUpdateColumnSize = (id, width, depth, radius) => setPlacedColumns(prev => prev.map(c => c.id === id ? { ...c, width, depth, radius } : c));    const handleDeleteSlab = (id) => setPlacedSlabs(prev => prev.filter(s => s.id !== id));
-    const handleUpdateSlabThickness = (id, thickness) => setPlacedSlabs(prev => prev.map(s => s.id === id ? { ...s, thickness } : s));
     const handleRenameArea = (id, newName) => setDrawnAreas(prev => prev.map(area => area.id === id ? { ...area, name: newName } : area));
     const handleEditAreaClick = (id) => { setBackupAreas(JSON.parse(JSON.stringify(drawnAreas))); setEditingAreaId(id); setActiveTool('AREA'); setAreaMode('EDIT'); };
+
+    const handleDeleteColumn = (id) => setPlacedColumns(prev => prev.filter(c => c.id !== id));
+    const handleUpdateColumnSize = (id, width, depth, radius) => setPlacedColumns(prev => prev.map(c => c.id === id ? { ...c, width, depth, radius } : c));
+
+    // 🌟 BEAM HANDLERS
+    const handleDeleteBeam = (id) => setPlacedBeams(prev => prev.filter(b => b.id !== id));
+    const handleUpdateBeamType = (id, beamType) => setPlacedBeams(prev => prev.map(b => b.id === id ? { ...b, beamType } : b));
+    const handleUpdateBeamSize = (id, width, depth) => setPlacedBeams(prev => prev.map(b => b.id === id ? { ...b, width, depth } : b));
+
+    const handleDeleteSlab = (id) => setPlacedSlabs(prev => prev.filter(s => s.id !== id));
+    const handleUpdateSlabThickness = (id, thickness) => setPlacedSlabs(prev => prev.map(s => s.id === id ? { ...s, thickness } : s));
 
     // 🌟 SAVE & PROGRESS LOGIC
     const triggerCloudSave = async () => {
         const currentData = await loadProjectData(urn);
         if (currentData) {
-            await saveProjectData(urn, { ...currentData, drawnAreas, placedColumns, placedSlabs });
+            // 🌟 ENSURE BEAMS ARE SAVED TO CLOUD
+            await saveProjectData(urn, { ...currentData, drawnAreas, placedColumns, placedBeams, placedSlabs });
         }
     };
 
@@ -236,7 +306,7 @@ const handleUpdateColumnSize = (id, width, depth, radius) => setPlacedColumns(pr
         setIsSaving(false);
 
         if (unlockedFromStructural) {
-            setUnlockedFromStructural(false); setAppStage('STRUCTURAL'); setActiveTool('COLUMN'); return; 
+            setUnlockedFromStructural(false); setAppStage('STRUCTURAL'); setActiveTool('COLUMN'); return;
         }
 
         if (currentFloorIndex !== archFloors.length - 1) {
@@ -265,12 +335,12 @@ const handleUpdateColumnSize = (id, width, depth, radius) => setPlacedColumns(pr
 
     const activeFloorAreas = drawnAreas.filter(area => area.floorIndex === currentFloorIndex);
     const activeFloorColumns = placedColumns.filter(c => c.floorIndex === currentFloorIndex);
+    const activeFloorBeams = placedBeams.filter(b => b.floorIndex === currentFloorIndex); // 🌟 BEAM FILTER
     const activeFloorSlabs = placedSlabs.filter(s => s.floorIndex === currentFloorIndex);
 
     return (
         <div className="flex h-screen bg-slate-900 font-sans overflow-hidden relative">
 
-           {/* 🌟 1. CLEAN LEFT SIDEBAR COMPONENT */}
             <StructuralLeftSidebar
                 urn={urn} archFloors={archFloors} currentFloorIndex={currentFloorIndex} setCurrentFloorIndex={setCurrentFloorIndex}
                 appStage={appStage} setAppStage={setAppStage} activeTool={activeTool} setActiveTool={setActiveTool}
@@ -280,10 +350,11 @@ const handleUpdateColumnSize = (id, width, depth, radius) => setPlacedColumns(pr
                 orthoEnabled={orthoEnabled} setOrthoEnabled={setOrthoEnabled} osnapEnabled={osnapEnabled} setOsnapEnabled={setOsnapEnabled}
                 zoneType={zoneType} setZoneType={setZoneType} isSaving={isSaving} handleNextStep={handleNextStep}
                 showWalls={showWalls} setShowWalls={setShowWalls}
-                structuralMode={structuralMode} setStructuralMode={setStructuralMode} // 🌟 NEW: Pass down!
+                structuralMode={structuralMode} setStructuralMode={setStructuralMode}
+                beamJustification={beamJustification}       
+                setBeamJustification={setBeamJustification}
             />
 
-            {/* 🌟 2. 3D VIEWER AREA */}
             <div className="flex-1 relative bg-black">
                 <div className="absolute top-5 left-6 z-[100] flex gap-3 animate-fade-in-down">
                     <HomeButton showWarning={false} />
@@ -293,12 +364,12 @@ const handleUpdateColumnSize = (id, width, depth, radius) => setPlacedColumns(pr
                 </div>
 
                 {(appStage === 'STRUCTURAL' || appStage === 'SLABS') && (
-                    <StructuralToolbar 
-                        activeTool={activeTool} 
-                        setActiveTool={setActiveTool} 
-                        appStage={appStage} 
-                        structuralMode={structuralMode} // 🌟 NEW
-                        setStructuralMode={setStructuralMode} // 🌟 NEW
+                    <StructuralToolbar
+                        activeTool={activeTool}
+                        setActiveTool={setActiveTool}
+                        appStage={appStage}
+                        structuralMode={structuralMode}
+                        setStructuralMode={setStructuralMode}
                     />
                 )}
 
@@ -309,7 +380,16 @@ const handleUpdateColumnSize = (id, width, depth, radius) => setPlacedColumns(pr
             {appStage === 'ARCHITECTURE' ? (
                 <AreaDetailsSidebar savedAreas={activeFloorAreas} onDeleteArea={handleDeleteArea} onRenameArea={handleRenameArea} onEditArea={handleEditAreaClick} />
             ) : appStage === 'STRUCTURAL' ? (
-                <ColumnDetailsSidebar columns={activeFloorColumns} onDeleteColumn={handleDeleteColumn} onUpdateColumnSize={handleUpdateColumnSize} />
+                // 🌟 SHOW COLUMN SIDEBAR OR BEAM SIDEBAR BASED ON THE TOP TAB
+                structuralMode === 'COLUMN' ? (
+                    <ColumnDetailsSidebar columns={activeFloorColumns} onDeleteColumn={handleDeleteColumn} onUpdateColumnSize={handleUpdateColumnSize} />
+                ) : (
+                    <BeamDetailsSidebar
+                        beams={activeFloorBeams}
+                        onDeleteBeam={handleDeleteBeam}
+                        onUpdateBeamType={handleUpdateBeamType}
+                        onUpdateBeamSize={handleUpdateBeamSize}
+                    />)
             ) : appStage === 'SLABS' ? (
                 <SlabDetailsSidebar slabs={activeFloorSlabs} onDeleteSlab={handleDeleteSlab} onUpdateSlabThickness={handleUpdateSlabThickness} />
             ) : (

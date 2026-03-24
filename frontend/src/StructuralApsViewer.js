@@ -2,6 +2,7 @@
 import React, { useEffect, useRef, useImperativeHandle, forwardRef } from 'react';
 import AreaDrawingTool from './tools/AreaDrawingTool/AreaDrawingTool';
 import { ColumnDrawingTool } from './tools/ColumnDrawingTool';
+import { BeamDrawingTool } from './tools/BeamDrawingTool'; // 🌟 BEAM IMPORT ADDED
 
 const StructuralApsViewer = forwardRef(({ urn, scaleFactor = 1, isViewLocked = false }, ref) => {
     const containerRef = useRef(null);
@@ -26,18 +27,14 @@ const StructuralApsViewer = forwardRef(({ urn, scaleFactor = 1, isViewLocked = f
                 let mesh;
 
                 if (col.shape === 'CIRCULAR') {
-                    // 🌟 1. Create the Cylinder
                     const radius = (col.radius || 0.1) / scaleFactor;
                     const geometry = new THREE.CylinderGeometry(radius, radius, height, 32);
-                    
-                    // 🌟 2. Stand it Upright! (Safest method for Autodesk's older 3D engine)
                     const matrix = new THREE.Matrix4().makeRotationX(Math.PI / 2);
                     geometry.applyMatrix(matrix);
 
                     mesh = new THREE.Mesh(geometry, material);
                     mesh.position.set(col.x, col.y, height / 2); 
                 } else {
-                    // 🌟 DRAW BOX (For FREE or ORTHO modes)
                     const width = (col.width || 0.2) / scaleFactor;
                     const depth = (col.depth || 0.2) / scaleFactor;
                     const geometry = new THREE.BoxGeometry(width, depth, height);
@@ -53,6 +50,50 @@ const StructuralApsViewer = forwardRef(({ urn, scaleFactor = 1, isViewLocked = f
         } catch (e) {
             console.error("Error drawing columns:", e);
         }
+    };
+
+   // 🌟 HELPER: Draw Beams
+    const drawSolidBeamsHelper = (beams) => {
+        try {
+            if (!viewerRef.current || !viewerRef.current.impl) return;
+            if (!viewerRef.current.overlays.hasScene('beam-scene')) viewerRef.current.overlays.addScene('beam-scene');
+            else { viewerRef.current.overlays.removeScene('beam-scene'); viewerRef.current.overlays.addScene('beam-scene'); }
+
+            beams.forEach(beam => {
+                const dx = beam.p2.x - beam.p1.x;
+                const dy = beam.p2.y - beam.p1.y;
+                const dist = Math.sqrt(dx*dx + dy*dy);
+                const angle = Math.atan2(dy, dx);
+                
+                const width = (beam.width || 0.2) / scaleFactor;
+                const depth = (beam.beamType === 'CONCEALED' ? 0.15 : (beam.depth || 0.3)) / scaleFactor;
+                const ceilingZ = (3.0 - ((beam.beamType === 'CONCEALED' ? 0.15 : (beam.depth || 0.3)) / 2)) / scaleFactor;
+
+                // 🌟 APPLY JUSTIFICATION OFFSET TO FINAL 3D MESH
+                let offsetDist = 0;
+                if (beam.justification === 'LEFT') offsetDist = width / 2;
+                if (beam.justification === 'RIGHT') offsetDist = -width / 2;
+                
+                const perpX = -Math.sin(angle) * offsetDist;
+                const perpY = Math.cos(angle) * offsetDist;
+
+                const midX = ((beam.p1.x + beam.p2.x) / 2) + perpX;
+                const midY = ((beam.p1.y + beam.p2.y) / 2) + perpY;
+
+                const geometry = new THREE.BoxGeometry(dist, width, depth);
+                const material = new THREE.MeshBasicMaterial({ 
+                    color: 0x3b82f6, transparent: beam.beamType === 'CONCEALED',
+                    opacity: beam.beamType === 'CONCEALED' ? 0.4 : 1.0, depthTest: false 
+                }); 
+                const mesh = new THREE.Mesh(geometry, material);
+                
+                mesh.position.set(midX, midY, ceilingZ); 
+                mesh.rotation.z = angle;
+                
+                viewerRef.current.overlays.addMesh(mesh, 'beam-scene');
+            });
+            viewerRef.current.impl.invalidate(true, true, true);
+        } catch (e) { console.error("Error drawing beams:", e); }
     };
 
     useImperativeHandle(ref, () => ({
@@ -90,9 +131,9 @@ const StructuralApsViewer = forwardRef(({ urn, scaleFactor = 1, isViewLocked = f
             if (colTool) {
                 if (colTool.setToggles) colTool.setToggles(settings.orthoEnabled, settings.osnapEnabled);
                 if (colTool.setScaleFactor) colTool.setScaleFactor(scaleFactor);
+                if (colTool.updateSnapPoints) colTool.updateSnapPoints(settings.snapPoints || []);
             }
 
-            // Route the specific column mode (FREE, ORTHO, CIRCULAR)
             if (settings.activeTool && settings.activeTool.startsWith('COLUMN')) {
                 const mode = settings.activeTool.split('_')[1]; 
                 if (colTool) colTool.setColumnMode(mode);
@@ -101,9 +142,32 @@ const StructuralApsViewer = forwardRef(({ urn, scaleFactor = 1, isViewLocked = f
                 viewerRef.current.toolController.deactivateTool('column-drawing-tool');
             }
 
-            // --- 3. DRAW PLACED COLUMNS ---
+            // --- 3. BEAM TOOL LOGIC (🌟 ADDED) ---
+           if (!viewerRef.current.toolController.getTool('beam-drawing-tool')) {
+                const beamTool = new BeamDrawingTool(viewerRef.current);
+                viewerRef.current.toolController.registerTool(beamTool);
+            }
+            const beamTool = viewerRef.current.toolController.getTool('beam-drawing-tool');
+            if (beamTool) {
+                if (beamTool.setScaleFactor) beamTool.setScaleFactor(scaleFactor);
+                if (beamTool.updateSnapPoints) beamTool.updateSnapPoints(settings.snapPoints || []);
+                // 🌟 PASS ORTHO TO THE BEAM TOOL
+                if (beamTool.setToggles) beamTool.setToggles(settings.orthoEnabled, settings.osnapEnabled);
+                beamTool.justification = settings.beamJustification || 'CENTER';
+            }
+
+            if (settings.activeTool === 'BEAM_DRAW') {
+                viewerRef.current.toolController.activateTool('beam-drawing-tool');
+            } else {
+                viewerRef.current.toolController.deactivateTool('beam-drawing-tool');
+            }
+
+            // --- 4. DRAW PLACED ELEMENTS ---
             if (settings.placedColumns && viewerRef.current) {
                 drawSolidColumnsHelper(settings.placedColumns);
+            }
+            if (settings.placedBeams && viewerRef.current) {
+                drawSolidBeamsHelper(settings.placedBeams); // 🌟 BEAMS DRAWN HERE
             }
         },
 
@@ -214,7 +278,7 @@ const StructuralApsViewer = forwardRef(({ urn, scaleFactor = 1, isViewLocked = f
 
                 const geo = new THREE.ShapeGeometry(shape);
                 
-                let color = 0x3B82F6; // INDOOR (Blue)
+                let color = 0x3B82F6; 
                 if (area.zoneType === 'PORCH') color = 0xA855F7; 
                 if (area.zoneType === 'COURTYARD') color = 0xEAB308; 
                 if (area.zoneType === 'VERANDAH') color = 0xF97316; 

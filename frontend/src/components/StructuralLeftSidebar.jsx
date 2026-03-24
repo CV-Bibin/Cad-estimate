@@ -9,7 +9,8 @@ const StructuralLeftSidebar = ({
     drawnAreas, setDrawnAreas, backupAreas,
     orthoEnabled, setOrthoEnabled, osnapEnabled, setOsnapEnabled,
     zoneType, setZoneType, isSaving, handleNextStep,
-    showWalls, setShowWalls , structuralMode
+    showWalls, setShowWalls, structuralMode,
+    beamJustification, setBeamJustification // 🌟 ADDED MISSING PROPS
 }) => {
     const navigate = useNavigate();
 
@@ -81,7 +82,7 @@ const StructuralLeftSidebar = ({
                     </div>
                 )}
 
-              {/* 🌟 STAGE 3: COLUMNS & BEAMS */}
+                {/* 🌟 STAGE 3: COLUMNS & BEAMS */}
                 {appStage === 'STRUCTURAL' ? (
                     <div className="bg-slate-900/60 rounded-xl p-3 mb-4 border border-slate-700 animate-fade-in-down shadow-inner">
                         <div className="flex items-center justify-between mb-3">
@@ -93,27 +94,17 @@ const StructuralLeftSidebar = ({
                             </div>
                         </div>
 
-                        {/* 🌟 DYNAMIC SUB-MENU BASED ON TOP-RIGHT SELECTION */}
                         {structuralMode === 'COLUMN' ? (
                             <>
                                 <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-2 border-b border-slate-700 pb-1">Select Column Type:</p>
                                 <div className="flex flex-col gap-2">
-                                    <button 
-                                        onClick={() => setActiveTool(activeTool === 'COLUMN_FREE' ? 'NONE' : 'COLUMN_FREE')} 
-                                        className={`py-2 px-3 text-xs font-bold rounded-lg border flex justify-between transition-all ${activeTool === 'COLUMN_FREE' ? 'bg-purple-600 text-white border-purple-400 shadow-md' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white hover:bg-slate-700'}`}
-                                    >
+                                    <button onClick={() => setActiveTool(activeTool === 'COLUMN_FREE' ? 'NONE' : 'COLUMN_FREE')} className={`py-2 px-3 text-xs font-bold rounded-lg border flex justify-between transition-all ${activeTool === 'COLUMN_FREE' ? 'bg-purple-600 text-white border-purple-400 shadow-md' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white hover:bg-slate-700'}`}>
                                         <span>📐 3-Point (Angled)</span> {activeTool === 'COLUMN_FREE' && <span className="text-[10px] bg-purple-500 px-1.5 rounded">ON</span>}
                                     </button>
-                                    <button 
-                                        onClick={() => setActiveTool(activeTool === 'COLUMN_ORTHO' ? 'NONE' : 'COLUMN_ORTHO')} 
-                                        className={`py-2 px-3 text-xs font-bold rounded-lg border flex justify-between transition-all ${activeTool === 'COLUMN_ORTHO' ? 'bg-purple-600 text-white border-purple-400 shadow-md' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white hover:bg-slate-700'}`}
-                                    >
+                                    <button onClick={() => setActiveTool(activeTool === 'COLUMN_ORTHO' ? 'NONE' : 'COLUMN_ORTHO')} className={`py-2 px-3 text-xs font-bold rounded-lg border flex justify-between transition-all ${activeTool === 'COLUMN_ORTHO' ? 'bg-purple-600 text-white border-purple-400 shadow-md' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white hover:bg-slate-700'}`}>
                                         <span>⏹️ 2-Point (Ortho)</span> {activeTool === 'COLUMN_ORTHO' && <span className="text-[10px] bg-purple-500 px-1.5 rounded">ON</span>}
                                     </button>
-                                    <button 
-                                        onClick={() => setActiveTool(activeTool === 'COLUMN_CIRCULAR' ? 'NONE' : 'COLUMN_CIRCULAR')} 
-                                        className={`py-2 px-3 text-xs font-bold rounded-lg border flex justify-between transition-all ${activeTool === 'COLUMN_CIRCULAR' ? 'bg-purple-600 text-white border-purple-400 shadow-md' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white hover:bg-slate-700'}`}
-                                    >
+                                    <button onClick={() => setActiveTool(activeTool === 'COLUMN_CIRCULAR' ? 'NONE' : 'COLUMN_CIRCULAR')} className={`py-2 px-3 text-xs font-bold rounded-lg border flex justify-between transition-all ${activeTool === 'COLUMN_CIRCULAR' ? 'bg-purple-600 text-white border-purple-400 shadow-md' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white hover:bg-slate-700'}`}>
                                         <span>🔵 Circular</span> {activeTool === 'COLUMN_CIRCULAR' && <span className="text-[10px] bg-purple-500 px-1.5 rounded">ON</span>}
                                     </button>
                                 </div>
@@ -121,13 +112,22 @@ const StructuralLeftSidebar = ({
                         ) : (
                             <>
                                 <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-2 border-b border-slate-700 pb-1">Beam Tools:</p>
-                                <div className="flex flex-col gap-2">
-                                    <button 
-                                        onClick={() => setActiveTool(activeTool === 'BEAM_DRAW' ? 'NONE' : 'BEAM_DRAW')} 
-                                        className={`py-2 px-3 text-xs font-bold rounded-lg border flex justify-between transition-all ${activeTool === 'BEAM_DRAW' ? 'bg-blue-600 text-white border-blue-400 shadow-md' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white hover:bg-slate-700'}`}
-                                    >
+                                <div className="flex flex-col gap-3">
+                                    <button onClick={() => setActiveTool(activeTool === 'BEAM_DRAW' ? 'NONE' : 'BEAM_DRAW')} className={`py-2 px-3 text-xs font-bold rounded-lg border flex justify-between transition-all ${activeTool === 'BEAM_DRAW' ? 'bg-blue-600 text-white border-blue-400 shadow-md' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white hover:bg-slate-700'}`}>
                                         <span>📏 Draw Beam</span> {activeTool === 'BEAM_DRAW' && <span className="text-[10px] bg-blue-500 px-1.5 rounded">ON</span>}
                                     </button>
+
+                                    {/* 🌟 BEAM ALIGNMENT (JUSTIFICATION) UI */}
+                                    {activeTool === 'BEAM_DRAW' && (
+                                        <div className="bg-slate-800/80 p-3 rounded-lg border border-slate-700 animate-fade-in-down shadow-lg">
+                                            <p className="text-[9px] text-slate-400 font-black uppercase tracking-widest mb-2">Align (Spacebar):</p>
+                                            <div className="flex gap-1">
+                                                <button onClick={() => setBeamJustification('LEFT')} className={`flex-1 py-2 text-[10px] font-bold rounded border transition-all ${beamJustification === 'LEFT' ? 'bg-blue-600 text-white border-blue-400 shadow-md' : 'bg-slate-900 text-slate-400 border-slate-700 hover:bg-slate-700'}`}>Inside</button>
+                                                <button onClick={() => setBeamJustification('CENTER')} className={`flex-1 py-2 text-[10px] font-bold rounded border transition-all ${beamJustification === 'CENTER' ? 'bg-blue-600 text-white border-blue-400 shadow-md' : 'bg-slate-900 text-slate-400 border-slate-700 hover:bg-slate-700'}`}>Center</button>
+                                                <button onClick={() => setBeamJustification('RIGHT')} className={`flex-1 py-2 text-[10px] font-bold rounded border transition-all ${beamJustification === 'RIGHT' ? 'bg-blue-600 text-white border-blue-400 shadow-md' : 'bg-slate-900 text-slate-400 border-slate-700 hover:bg-slate-700'}`}>Outside</button>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             </>
                         )}
@@ -137,16 +137,13 @@ const StructuralLeftSidebar = ({
                         <button disabled className="flex-1 py-3 px-4 rounded-xl text-sm font-bold shadow-md bg-slate-800/80 text-slate-500 border border-slate-700 flex items-center gap-3 cursor-not-allowed">
                             <span>🔒</span> 3. Supports Locked
                         </button>
-                        <button onClick={() => { setAppStage('STRUCTURAL'); setActiveTool('NONE'); }} className="py-3 px-4 rounded-xl bg-slate-700 hover:bg-slate-600 text-white border border-slate-500 shadow-md">
-                            🔓
-                        </button>
+                        <button onClick={() => { setAppStage('STRUCTURAL'); setActiveTool('NONE'); }} className="py-3 px-4 rounded-xl bg-slate-700 hover:bg-slate-600 text-white border border-slate-500 shadow-md flex items-center justify-center">🔓</button>
                     </div>
                 ) : (
                     <button disabled className="w-full py-3 px-4 bg-slate-800/40 rounded-xl text-slate-600 border border-slate-700/50 text-sm font-bold mb-2 flex items-center gap-3 cursor-not-allowed">
                         <span className="opacity-40">🏛️</span> 3. Supports (Locked)
                     </button>
                 )}
-
 
                 {/* 🌟 STAGE 4: SLABS & LINTELS */}
                 {appStage === 'SLABS' ? (
@@ -157,7 +154,7 @@ const StructuralLeftSidebar = ({
                 ) : appStage === 'FOUNDATION' ? (
                      <div className="flex gap-2 mb-2 animate-fade-in">
                         <button disabled className="flex-1 py-3 px-4 rounded-xl text-sm font-bold shadow-md bg-slate-800/80 text-slate-500 border border-slate-700 flex items-center gap-3 cursor-not-allowed"><span>🔒</span> 4. Spans Locked</button>
-                        <button onClick={() => { setAppStage('SLABS'); setActiveTool('NONE'); }} className="py-3 px-4 rounded-xl bg-slate-700 hover:bg-slate-600 text-white border border-slate-500 shadow-md">🔓</button>
+                        <button onClick={() => { setAppStage('SLABS'); setActiveTool('NONE'); }} className="py-3 px-4 rounded-xl bg-slate-700 hover:bg-slate-600 text-white border border-slate-500 shadow-md flex items-center justify-center">🔓</button>
                     </div>
                 ) : (
                     <button disabled className="w-full py-3 px-4 bg-slate-800/40 rounded-xl text-slate-600 border border-slate-700/50 text-sm font-bold mb-2 flex items-center gap-3 cursor-not-allowed"><span className="opacity-40">🧊</span> 4. Spans (Locked)</button>
