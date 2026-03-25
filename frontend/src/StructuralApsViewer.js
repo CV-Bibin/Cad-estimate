@@ -13,13 +13,17 @@ const StructuralApsViewer = forwardRef(({ urn, scaleFactor = 1, isViewLocked = f
     const drawSolidColumnsHelper = (columns) => {
         try {
             if (!viewerRef.current || !viewerRef.current.impl) return;
+            const sceneName = 'column-scene';
             
-            if (!viewerRef.current.overlays.hasScene('column-scene')) {
-                viewerRef.current.overlays.addScene('column-scene');
-            } else {
-                viewerRef.current.overlays.removeScene('column-scene');
-                viewerRef.current.overlays.addScene('column-scene');
+            if (!viewerRef.current.overlays.hasScene(sceneName)) {
+                viewerRef.current.overlays.addScene(sceneName);
             }
+
+            // Clean old meshes from memory
+            if (viewerRef.current.columnMeshes) {
+                viewerRef.current.columnMeshes.forEach(mesh => viewerRef.current.overlays.removeMesh(mesh, sceneName));
+            }
+            viewerRef.current.columnMeshes = [];
 
             columns.forEach(col => {
                 const height = 3.0 / scaleFactor; 
@@ -44,7 +48,11 @@ const StructuralApsViewer = forwardRef(({ urn, scaleFactor = 1, isViewLocked = f
                     mesh.rotation.z = col.rotation || 0; 
                 }
                 
-                viewerRef.current.overlays.addMesh(mesh, 'column-scene');
+                // 🌟 CRITICAL FIX: Attach the ID and Color so the Highlighter can find it!
+                mesh.userData = { id: col.id, originalColor: 0xa855f7, originalOpacity: 1.0 };
+                
+                viewerRef.current.overlays.addMesh(mesh, sceneName);
+                viewerRef.current.columnMeshes.push(mesh);
             });
             viewerRef.current.impl.invalidate(true, true, true);
         } catch (e) {
@@ -103,7 +111,11 @@ const StructuralApsViewer = forwardRef(({ urn, scaleFactor = 1, isViewLocked = f
                 const mesh = new THREE.Mesh(geometry, material);
                 
                 // Keep this! The tool still uses it for the instant-hide.
-                mesh.userData = { id: beam.id }; 
+                mesh.userData = { 
+                    id: beam.id, 
+                    originalColor: 0x22c55e, 
+                    originalOpacity: beam.beamType === 'CONCEALED' ? 0.4 : 1.0 
+                };
                 
                 mesh.position.set(midX, midY, ceilingZ); 
                 mesh.rotation.z = angle;
@@ -116,8 +128,33 @@ const StructuralApsViewer = forwardRef(({ urn, scaleFactor = 1, isViewLocked = f
     };
 
     
-    useImperativeHandle(ref, () => ({
+   useImperativeHandle(ref, () => ({
         viewer: viewerRef.current,
+
+        // 🌟 ADD THIS BRAND NEW FUNCTION:
+        highlightElement: (id) => {
+            if (!viewerRef.current || !viewerRef.current.impl) return;
+            const highlightColor = 0xeab308; // Bright Yellow
+
+            const applyHighlight = (meshes) => {
+                if (!meshes) return;
+                meshes.forEach(mesh => {
+                    if (mesh.userData && mesh.userData.id) {
+                        if (id && String(mesh.userData.id) === String(id)) {
+                            mesh.material.color.setHex(highlightColor);
+                            mesh.material.opacity = 1.0; // Make solid yellow
+                        } else {
+                            mesh.material.color.setHex(mesh.userData.originalColor);
+                            mesh.material.opacity = mesh.userData.originalOpacity;
+                        }
+                    }
+                });
+            };
+
+            applyHighlight(viewerRef.current.columnMeshes);
+            applyHighlight(viewerRef.current.beamMeshes);
+            viewerRef.current.impl.invalidate(true, true, true);
+        },
 
         updateSettings: (settings) => {
             if (!viewerRef.current || !viewerRef.current.toolController) return;
@@ -325,6 +362,9 @@ const StructuralApsViewer = forwardRef(({ urn, scaleFactor = 1, isViewLocked = f
             }
         }
     }));
+
+
+    
 
     // --- VIEWER INITIALIZATION ---
     useEffect(() => {

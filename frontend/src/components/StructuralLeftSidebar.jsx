@@ -10,7 +10,7 @@ const StructuralLeftSidebar = ({
     orthoEnabled, setOrthoEnabled, osnapEnabled, setOsnapEnabled,
     zoneType, setZoneType, isSaving, handleNextStep,
     showWalls, setShowWalls, structuralMode,
-    beamJustification, setBeamJustification // 🌟 ADDED MISSING PROPS
+    beamJustification, setBeamJustification 
 }) => {
     const navigate = useNavigate();
 
@@ -113,13 +113,11 @@ const StructuralLeftSidebar = ({
                             <>
                                 <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-2 border-b border-slate-700 pb-1">Beam Tools:</p>
                                 
-                                {/* 🌟 NEW: Toggles for Beam Engine (Ortho & CAD Snap) */}
                                 <div className="flex gap-2 mb-3">
                                     <button onClick={() => setOrthoEnabled(!orthoEnabled)} className={`flex-1 py-1.5 text-[10px] font-black uppercase rounded border transition-all ${orthoEnabled ? 'bg-blue-600/30 text-blue-400 border-blue-500/50' : 'bg-slate-800 text-slate-500 border-slate-700 hover:bg-slate-700'}`}>📐 Ortho</button>
                                     <button onClick={() => setOsnapEnabled(!osnapEnabled)} className={`flex-1 py-1.5 text-[10px] font-black uppercase rounded border transition-all ${osnapEnabled ? 'bg-cyan-600/30 text-cyan-400 border-cyan-500/50' : 'bg-slate-800 text-slate-500 border-slate-700 hover:bg-slate-700'}`}>🧲 CAD Snap</button>
                                 </div>
 
-                                {/* 🌟 NEW: Draw & Edit Modes */}
                                 <div className="flex flex-col gap-2 mb-3">
                                     <button onClick={() => setActiveTool(activeTool === 'BEAM_DRAW' ? 'NONE' : 'BEAM_DRAW')} className={`py-2 px-3 text-xs font-bold rounded-lg border flex justify-between transition-all ${activeTool === 'BEAM_DRAW' ? 'bg-blue-600 text-white border-blue-400 shadow-md' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white hover:bg-slate-700'}`}>
                                         <span>➕ Draw Normal</span> {activeTool === 'BEAM_DRAW' && <span className="text-[10px] bg-blue-500 px-1.5 rounded">ON</span>}
@@ -129,7 +127,6 @@ const StructuralLeftSidebar = ({
                                     </button>
                                 </div>
 
-                                {/* 🌟 BEAM ALIGNMENT (JUSTIFICATION) UI - Only shows when Drawing */}
                                 {activeTool === 'BEAM_DRAW' && (
                                     <div className="bg-slate-800/80 p-3 rounded-lg border border-slate-700 animate-fade-in-down shadow-lg">
                                         <p className="text-[9px] text-slate-400 font-black uppercase tracking-widest mb-2">Align (Spacebar):</p>
@@ -198,13 +195,32 @@ const StructuralLeftSidebar = ({
                         </button>
                     </div>
                 ) : appStage === 'STRUCTURAL' ? (
+                    // 🌟 UPDATED: DYNAMIC STRUCTURAL PROGRESS BUTTON
                     <div className="p-5 rounded-xl bg-[#2e1065]/60 border border-[#7e22ce]/50 shadow-lg backdrop-blur-md animate-fade-in">
-                        <div className="flex items-center gap-2 mb-4">
-                            <div className="w-2 h-2 rounded-full bg-purple-400 animate-pulse"></div>
-                            <span className="text-[10px] text-purple-300 font-bold uppercase tracking-wider">Stage 3: Supports</span>
+                        <div className="flex items-center justify-between mb-4">
+                            <div className="flex items-center gap-2">
+                                <div className="w-2 h-2 rounded-full bg-purple-400 animate-pulse"></div>
+                                <span className="text-[10px] text-purple-300 font-bold uppercase tracking-wider">
+                                    Stage 3: {structuralMode === 'COLUMN' ? 'Columns' : 'Beams'}
+                                </span>
+                            </div>
+                            <span className="text-xs font-mono text-purple-300">{currentFloorIndex + 1} / {archFloors.length}</span>
                         </div>
-                        <button onClick={() => { setAppStage('SLABS'); setActiveTool('SLAB_ROOF'); }} className="w-full py-3 rounded-lg text-xs font-bold uppercase tracking-widest transition-all flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-500 text-white shadow-[0_0_15px_rgba(147,51,234,0.4)]">
-                            <span>✅</span> Complete Supports
+                        
+                        <button 
+                            onClick={handleNextStep} 
+                            disabled={isSaving} 
+                            className={`w-full py-3 rounded-lg text-xs font-bold uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${isSaving ? "bg-slate-700 text-slate-400 cursor-wait" : "bg-purple-600 hover:bg-purple-500 text-white shadow-[0_0_15px_rgba(147,51,234,0.4)]"}`}
+                        >
+                            {isSaving ? (
+                                <><span>⏳</span> Saving...</>
+                            ) : structuralMode === 'COLUMN' ? (
+                                <><span>➡️</span> Next: Beams</>
+                            ) : currentFloorIndex < archFloors.length - 1 ? (
+                                <><span>⬆️</span> Next Floor Columns</>
+                            ) : (
+                                <><span>✅</span> Complete Supports</>
+                            )}
                         </button>
                     </div>
                 ) : appStage === 'SLABS' ? (

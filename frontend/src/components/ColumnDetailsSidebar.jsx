@@ -1,6 +1,6 @@
 import React from 'react';
 
-const ColumnDetailsSidebar = ({ columns, onDeleteColumn, onUpdateColumnSize }) => {
+const ColumnDetailsSidebar = ({ columns, onDeleteColumn, onUpdateColumnSize, onHoverColumn }) => { // 🌟 1. ADDED onHoverColumn HERE
     // 🌟 MATH: Calculate Estimated Concrete Volume (3m height)
     const floorHeight = 3.0; 
     const totalVolume = columns.reduce((sum, col) => {
@@ -39,7 +39,13 @@ const ColumnDetailsSidebar = ({ columns, onDeleteColumn, onUpdateColumnSize }) =
                     </div>
                 ) : (
                     columns.map((col, index) => (
-                        <div key={col.id} style={{ backgroundColor: '#27272a', borderRadius: '8px', marginBottom: '12px', border: '1px solid #3f3f46', overflow: 'hidden' }}>
+                        <div 
+                            key={col.id} 
+                            style={{ backgroundColor: '#27272a', borderRadius: '8px', marginBottom: '12px', border: '1px solid #3f3f46', overflow: 'hidden', transition: 'border-color 0.2s' }}
+                            // 🌟 2. ADDED HOVER EVENTS HERE:
+                            onMouseEnter={() => onHoverColumn && onHoverColumn(col.id)}
+                            onMouseLeave={() => onHoverColumn && onHoverColumn(null)}
+                        >
                             <div style={{ padding: '10px 14px', borderBottom: '1px solid #3f3f46', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderLeft: '3px solid #a855f7' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                                     <span style={{ color: '#fff', fontSize: '14px', fontWeight: 'bold' }}>{col.name || `C${index + 1}`}</span>

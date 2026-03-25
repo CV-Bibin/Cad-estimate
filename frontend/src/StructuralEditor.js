@@ -53,19 +53,45 @@ const StructuralEditor = () => {
     const [placedBeams, setPlacedBeams] = useState([]); // 🌟 ADDED BEAM STATE
     const [placedSlabs, setPlacedSlabs] = useState([]);
     const [editingBeamId, setEditingBeamId] = useState(null);
+    const [hoveredElementId, setHoveredElementId] = useState(null);
 
     // 🌟 Master Snap Engine: Corners, Centers, and Faces with Data
     const snapPoints = React.useMemo(() => {
         let pts = [];
         const activeFloor = archFloors[currentFloorIndex];
 
+        // 🌟 1. CALCULATE WALL CORNERS FOR PERFECT SNAPPING
         if (activeFloor && activeFloor.walls) {
             activeFloor.walls.forEach(wall => {
-                if (wall.points?.p1) pts.push({ ...wall.points.p1, colSize: 0.23, type: 'wall' });
-                if (wall.points?.p2) pts.push({ ...wall.points.p2, colSize: 0.23, type: 'wall' });
+                if (!wall.points || !wall.points.p1 || !wall.points.p2) return;
+                
+                const { p1, p2 } = wall.points;
+                
+                // Add the centerlines
+                pts.push({ x: p1.x, y: p1.y, isCenter: true, type: 'wall' });
+                pts.push({ x: p2.x, y: p2.y, isCenter: true, type: 'wall' });
+                
+                // Calculate the 4 physical corners of the wall based on its thickness
+                const dx = p2.x - p1.x;
+                const dy = p2.y - p1.y;
+                const angle = Math.atan2(dy, dx);
+                
+                // Adjust wall thickness to Viewer scale (defaulting to 0.23m if undefined)
+                const viewerThickness = (wall.thickness || 0.23) / scaleFactor;
+                
+                // Calculate perpendicular offsets
+                const px = -Math.sin(angle) * (viewerThickness / 2);
+                const py = Math.cos(angle) * (viewerThickness / 2);
+
+                // Add the 4 outer corners to the snap engine!
+                pts.push({ x: p1.x + px, y: p1.y + py, isCorner: true, type: 'wall' });
+                pts.push({ x: p1.x - px, y: p1.y - py, isCorner: true, type: 'wall' });
+                pts.push({ x: p2.x + px, y: p2.y + py, isCorner: true, type: 'wall' });
+                pts.push({ x: p2.x - px, y: p2.y - py, isCorner: true, type: 'wall' });
             });
         }
 
+        // 🌟 2. EXISTING COLUMN SNAP LOGIC
         placedColumns.forEach(col => {
             if (col.floorIndex !== currentFloorIndex) return;
 
@@ -181,8 +207,9 @@ const StructuralEditor = () => {
                 areaMode: areaMode,
                 drawnAreas: drawnAreas.filter(a => a.floorIndex === currentFloorIndex),
 
-                placedColumns: placedColumns.filter(c => c.floorIndex === currentFloorIndex),
-                placedBeams: placedBeams.filter(b => b.floorIndex === currentFloorIndex),
+               placedColumns: appStage === 'ARCHITECTURE' ? [] : placedColumns.filter(c => c.floorIndex === currentFloorIndex),
+                placedBeams: appStage === 'ARCHITECTURE' ? [] : placedBeams.filter(b => b.floorIndex === currentFloorIndex),
+
                 editingBeamId: editingBeamId,
 
                 editingAreaId: editingAreaId,
@@ -193,7 +220,7 @@ const StructuralEditor = () => {
                 osnapEnabled: osnapEnabled
             });
         }
-    }, [activeTool, areaMode, zoneType, snapPoints, orthoEnabled, osnapEnabled, viewerReady, drawnAreas, editingAreaId, currentFloorIndex, placedColumns, placedBeams, beamJustification, editingBeamId]);
+    }, [activeTool, areaMode, zoneType, snapPoints, orthoEnabled, osnapEnabled, viewerReady, drawnAreas, editingAreaId, currentFloorIndex, placedColumns, placedBeams, beamJustification, editingBeamId, appStage]);
 
     // 🌟 EVENT LISTENERS
     useEffect(() => {
@@ -316,25 +343,80 @@ const StructuralEditor = () => {
         try { await triggerCloudSave(); } catch (e) { alert("⚠️ Could not save progress manually."); }
         setIsSaving(false);
     };
-
-    const handleNextStep = async () => {
+const handleNextStep = async () => {
         setIsSaving(true);
         try { await triggerCloudSave(); } catch (e) { alert("⚠️ Could not save progress."); }
         setIsSaving(false);
 
+        // 1. Handle Unlock Override
         if (unlockedFromStructural) {
-            setUnlockedFromStructural(false); setAppStage('STRUCTURAL'); setActiveTool('COLUMN'); return;
+            setUnlockedFromStructural(false); 
+            setAppStage('STRUCTURAL'); 
+            setStructuralMode('COLUMN');
+            setActiveTool('COLUMN'); 
+            return;
         }
 
-        if (currentFloorIndex !== archFloors.length - 1) {
-            setCurrentFloorIndex(prev => prev + 1);
-            setAreaMode('DRAW'); setActiveTool('NONE');
-            const switcher = document.getElementById('floor-switcher'); if (switcher) switcher.scrollLeft += 100;
-        } else {
-            setAppStage('STRUCTURAL'); setActiveTool('COLUMN'); setCurrentFloorIndex(0);
-            const switcher = document.getElementById('floor-switcher'); if (switcher) switcher.scrollLeft = 0;
+        const isLastFloor = currentFloorIndex === archFloors.length - 1;
+        const switcher = document.getElementById('floor-switcher');
+
+        // 2. ARCHITECTURE STAGE: Cycle floors, then move to Structural Floor 0
+        if (appStage === 'ARCHITECTURE') {
+            if (!isLastFloor) {
+                setCurrentFloorIndex(prev => prev + 1);
+                setAreaMode('DRAW'); 
+                setActiveTool('NONE');
+                if (switcher) switcher.scrollLeft += 100;
+            } else {
+                setAppStage('STRUCTURAL');
+                setStructuralMode('COLUMN'); // Start with Columns
+                setActiveTool('COLUMN'); 
+                setCurrentFloorIndex(0);     // Drop back to Floor 0
+                if (switcher) switcher.scrollLeft = 0;
+            }
+        } 
+        // 3. STRUCTURAL STAGE: Columns -> Beams -> Next Floor Columns -> Slabs
+        else if (appStage === 'STRUCTURAL') {
+            if (structuralMode === 'COLUMN') {
+                // Done with Columns? Stay on the SAME floor and switch to Beams!
+                setStructuralMode('BEAM');
+                setActiveTool('BEAM_DRAW');
+            } else {
+                // Done with Beams? Check if there is another floor.
+                if (!isLastFloor) {
+                    setCurrentFloorIndex(prev => prev + 1);
+                    setStructuralMode('COLUMN'); // Back to Columns for the new floor
+                    setActiveTool('COLUMN');
+                    if (switcher) switcher.scrollLeft += 100;
+                } else {
+                    // Done with Beams on the LAST floor? Time for Slabs!
+                    setAppStage('SLABS');
+                    setCurrentFloorIndex(0); // Drop back to Floor 0 for Slabs
+                    setActiveTool('NONE');
+                    if (switcher) switcher.scrollLeft = 0;
+                }
+            }
+        }
+        // 4. SLABS STAGE: Cycle through all floors for slab drawing
+        else if (appStage === 'SLABS') {
+            if (!isLastFloor) {
+                setCurrentFloorIndex(prev => prev + 1);
+                setActiveTool('NONE');
+                if (switcher) switcher.scrollLeft += 100;
+            } else {
+                alert("🎉 Building Structure is Complete!");
+                // You can trigger a final export or transition to the next big stage here!
+            }
         }
     };
+
+    // 🌟 HOVER SYNC: Tell the viewer to highlight the hovered item
+    useEffect(() => {
+        if (viewerReady && viewerRef.current && viewerRef.current.highlightElement) {
+            viewerRef.current.highlightElement(hoveredElementId);
+        }
+    }, [hoveredElementId, viewerReady]);
+
 
     // 🌟 RENDER 3D CANVAS
     useEffect(() => {
@@ -398,14 +480,20 @@ const StructuralEditor = () => {
                 <AreaDetailsSidebar savedAreas={activeFloorAreas} onDeleteArea={handleDeleteArea} onRenameArea={handleRenameArea} onEditArea={handleEditAreaClick} />
             ) : appStage === 'STRUCTURAL' ? (
                 // 🌟 SHOW COLUMN SIDEBAR OR BEAM SIDEBAR BASED ON THE TOP TAB
-                structuralMode === 'COLUMN' ? (
-                    <ColumnDetailsSidebar columns={activeFloorColumns} onDeleteColumn={handleDeleteColumn} onUpdateColumnSize={handleUpdateColumnSize} />
+               structuralMode === 'COLUMN' ? (
+                    <ColumnDetailsSidebar 
+                        columns={activeFloorColumns} 
+                        onDeleteColumn={handleDeleteColumn} 
+                        onUpdateColumnSize={handleUpdateColumnSize} 
+                        onHoverColumn={setHoveredElementId} 
+                    />
                 ) : (
                     <BeamDetailsSidebar
                         beams={activeFloorBeams}
                         onDeleteBeam={handleDeleteBeam}
                         onUpdateBeamType={handleUpdateBeamType}
                         onUpdateBeamSize={handleUpdateBeamSize}
+                        onHoverBeam={setHoveredElementId}
                     />)
             ) : appStage === 'SLABS' ? (
                 <SlabDetailsSidebar slabs={activeFloorSlabs} onDeleteSlab={handleDeleteSlab} onUpdateSlabThickness={handleUpdateSlabThickness} />

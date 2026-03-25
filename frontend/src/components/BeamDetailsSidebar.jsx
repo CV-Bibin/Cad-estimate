@@ -1,6 +1,6 @@
 import React from 'react';
 
-const BeamDetailsSidebar = ({ beams, onDeleteBeam, onUpdateBeamType, onUpdateBeamSize }) => {
+const BeamDetailsSidebar = ({ beams, onDeleteBeam, onUpdateBeamType, onUpdateBeamSize, onHoverBeam }) => { // 🌟 1. ADDED onHoverBeam HERE
     // 🌟 MATH: Calculate Estimated Concrete Volume for Beams
     const totalVolume = beams.reduce((sum, beam) => {
         const length = parseFloat(beam.length || 0);
@@ -35,7 +35,13 @@ const BeamDetailsSidebar = ({ beams, onDeleteBeam, onUpdateBeamType, onUpdateBea
                     </div>
                 ) : (
                     beams.map((beam, index) => (
-                        <div key={beam.id} style={{ backgroundColor: '#27272a', borderRadius: '8px', marginBottom: '12px', border: '1px solid #3f3f46', overflow: 'hidden' }}>
+                        <div 
+                            key={beam.id} 
+                            style={{ backgroundColor: '#27272a', borderRadius: '8px', marginBottom: '12px', border: '1px solid #3f3f46', overflow: 'hidden', transition: 'border-color 0.2s' }}
+                            // 🌟 2. ADDED HOVER EVENTS HERE:
+                            onMouseEnter={() => onHoverBeam && onHoverBeam(beam.id)}
+                            onMouseLeave={() => onHoverBeam && onHoverBeam(null)}
+                        >
                             <div style={{ padding: '10px 14px', borderBottom: '1px solid #3f3f46', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderLeft: '3px solid #3b82f6' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                                     <span style={{ color: '#fff', fontSize: '14px', fontWeight: 'bold' }}>{beam.name || `B${index + 1}`}</span>
@@ -43,6 +49,7 @@ const BeamDetailsSidebar = ({ beams, onDeleteBeam, onUpdateBeamType, onUpdateBea
                                         {beam.justification}
                                     </span>
                                 </div>
+                                
                                 <button onClick={() => onDeleteBeam(beam.id)} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '12px', opacity: 0.7 }} title="Delete Beam">✖</button>
                             </div>
 
