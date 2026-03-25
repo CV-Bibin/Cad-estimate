@@ -112,23 +112,34 @@ const StructuralLeftSidebar = ({
                         ) : (
                             <>
                                 <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-2 border-b border-slate-700 pb-1">Beam Tools:</p>
-                                <div className="flex flex-col gap-3">
-                                    <button onClick={() => setActiveTool(activeTool === 'BEAM_DRAW' ? 'NONE' : 'BEAM_DRAW')} className={`py-2 px-3 text-xs font-bold rounded-lg border flex justify-between transition-all ${activeTool === 'BEAM_DRAW' ? 'bg-blue-600 text-white border-blue-400 shadow-md' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white hover:bg-slate-700'}`}>
-                                        <span>📏 Draw Beam</span> {activeTool === 'BEAM_DRAW' && <span className="text-[10px] bg-blue-500 px-1.5 rounded">ON</span>}
-                                    </button>
-
-                                    {/* 🌟 BEAM ALIGNMENT (JUSTIFICATION) UI */}
-                                    {activeTool === 'BEAM_DRAW' && (
-                                        <div className="bg-slate-800/80 p-3 rounded-lg border border-slate-700 animate-fade-in-down shadow-lg">
-                                            <p className="text-[9px] text-slate-400 font-black uppercase tracking-widest mb-2">Align (Spacebar):</p>
-                                            <div className="flex gap-1">
-                                                <button onClick={() => setBeamJustification('LEFT')} className={`flex-1 py-2 text-[10px] font-bold rounded border transition-all ${beamJustification === 'LEFT' ? 'bg-blue-600 text-white border-blue-400 shadow-md' : 'bg-slate-900 text-slate-400 border-slate-700 hover:bg-slate-700'}`}>Inside</button>
-                                                <button onClick={() => setBeamJustification('CENTER')} className={`flex-1 py-2 text-[10px] font-bold rounded border transition-all ${beamJustification === 'CENTER' ? 'bg-blue-600 text-white border-blue-400 shadow-md' : 'bg-slate-900 text-slate-400 border-slate-700 hover:bg-slate-700'}`}>Center</button>
-                                                <button onClick={() => setBeamJustification('RIGHT')} className={`flex-1 py-2 text-[10px] font-bold rounded border transition-all ${beamJustification === 'RIGHT' ? 'bg-blue-600 text-white border-blue-400 shadow-md' : 'bg-slate-900 text-slate-400 border-slate-700 hover:bg-slate-700'}`}>Outside</button>
-                                            </div>
-                                        </div>
-                                    )}
+                                
+                                {/* 🌟 NEW: Toggles for Beam Engine (Ortho & CAD Snap) */}
+                                <div className="flex gap-2 mb-3">
+                                    <button onClick={() => setOrthoEnabled(!orthoEnabled)} className={`flex-1 py-1.5 text-[10px] font-black uppercase rounded border transition-all ${orthoEnabled ? 'bg-blue-600/30 text-blue-400 border-blue-500/50' : 'bg-slate-800 text-slate-500 border-slate-700 hover:bg-slate-700'}`}>📐 Ortho</button>
+                                    <button onClick={() => setOsnapEnabled(!osnapEnabled)} className={`flex-1 py-1.5 text-[10px] font-black uppercase rounded border transition-all ${osnapEnabled ? 'bg-cyan-600/30 text-cyan-400 border-cyan-500/50' : 'bg-slate-800 text-slate-500 border-slate-700 hover:bg-slate-700'}`}>🧲 CAD Snap</button>
                                 </div>
+
+                                {/* 🌟 NEW: Draw & Edit Modes */}
+                                <div className="flex flex-col gap-2 mb-3">
+                                    <button onClick={() => setActiveTool(activeTool === 'BEAM_DRAW' ? 'NONE' : 'BEAM_DRAW')} className={`py-2 px-3 text-xs font-bold rounded-lg border flex justify-between transition-all ${activeTool === 'BEAM_DRAW' ? 'bg-blue-600 text-white border-blue-400 shadow-md' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white hover:bg-slate-700'}`}>
+                                        <span>➕ Draw Normal</span> {activeTool === 'BEAM_DRAW' && <span className="text-[10px] bg-blue-500 px-1.5 rounded">ON</span>}
+                                    </button>
+                                    <button onClick={() => setActiveTool(activeTool === 'BEAM_EDIT' ? 'NONE' : 'BEAM_EDIT')} className={`py-2 px-3 text-xs font-bold rounded-lg border flex justify-between transition-all ${activeTool === 'BEAM_EDIT' ? 'bg-yellow-600 text-white border-yellow-400 shadow-md' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white hover:bg-slate-700'}`}>
+                                        <span>✏️ Edit Joints</span> {activeTool === 'BEAM_EDIT' && <span className="text-[10px] bg-yellow-500 px-1.5 rounded">ON</span>}
+                                    </button>
+                                </div>
+
+                                {/* 🌟 BEAM ALIGNMENT (JUSTIFICATION) UI - Only shows when Drawing */}
+                                {activeTool === 'BEAM_DRAW' && (
+                                    <div className="bg-slate-800/80 p-3 rounded-lg border border-slate-700 animate-fade-in-down shadow-lg">
+                                        <p className="text-[9px] text-slate-400 font-black uppercase tracking-widest mb-2">Align (Spacebar):</p>
+                                        <div className="flex gap-1">
+                                            <button onClick={() => setBeamJustification('LEFT')} className={`flex-1 py-2 text-[10px] font-bold rounded border transition-all ${beamJustification === 'LEFT' ? 'bg-blue-600 text-white border-blue-400 shadow-md' : 'bg-slate-900 text-slate-400 border-slate-700 hover:bg-slate-700'}`}>Inside</button>
+                                            <button onClick={() => setBeamJustification('CENTER')} className={`flex-1 py-2 text-[10px] font-bold rounded border transition-all ${beamJustification === 'CENTER' ? 'bg-blue-600 text-white border-blue-400 shadow-md' : 'bg-slate-900 text-slate-400 border-slate-700 hover:bg-slate-700'}`}>Center</button>
+                                            <button onClick={() => setBeamJustification('RIGHT')} className={`flex-1 py-2 text-[10px] font-bold rounded border transition-all ${beamJustification === 'RIGHT' ? 'bg-blue-600 text-white border-blue-400 shadow-md' : 'bg-slate-900 text-slate-400 border-slate-700 hover:bg-slate-700'}`}>Outside</button>
+                                        </div>
+                                    </div>
+                                )}
                             </>
                         )}
                     </div>

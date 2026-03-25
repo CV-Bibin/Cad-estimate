@@ -14,14 +14,23 @@ export class BeamToolVisuals {
         this.initGhostMesh();
     }
 
-    initGhostMesh() {
+   initGhostMesh() {
         const geo = new THREE.BoxGeometry(1, 1, 1); 
-        // 🌟 FIX: depthWrite: false ensures it always renders on top of the floor
-        const mat = new THREE.MeshBasicMaterial({ color: 0x3b82f6, transparent: true, opacity: 0.7, depthTest: false, depthWrite: false });
+        
+        // 🌟 FIX: Changed from transparent blue to SOLID GREEN (opacity: 1.0)
+        const mat = new THREE.MeshBasicMaterial({ 
+            color: 0xf97316,      // Beautiful CAD Orange
+            transparent: true,    // Turn transparency ON
+            opacity: 0.6,         // 60% solid so you can see through it
+            depthTest: false
+        });
+        
         this.ghostMesh = new THREE.Mesh(geo, mat);
         this.ghostMesh.visible = false;
         
-        // 🌟 FIX: Added to OVERLAYS, not sceneAfter!
+        if (!this.viewer.overlays.hasScene('beam-tool-scene')) {
+            this.viewer.overlays.addScene('beam-tool-scene');
+        }
         this.viewer.overlays.addMesh(this.ghostMesh, 'beam-tool-scene');
     }
 
@@ -33,23 +42,22 @@ export class BeamToolVisuals {
         this.ghostMesh.visible = true;
     }
 
-   drawOsnapIndicator(pos, snapType, scaleFactor) {
+  drawOsnapIndicator(pos, snapType, scaleFactor) {
         if (!this.viewer.overlays.hasScene('beam-tool-scene')) this.viewer.overlays.addScene('beam-tool-scene');
         this.clearOsnap();
 
         if (!pos || snapType === 'none') return;
 
         const dist = this.viewer.impl.camera.position.distanceTo(pos);
-        
-        // 🌟 FIX: Add a Math.max clamp so the icon NEVER gets too small when zoomed in!
-        const size = Math.max(0.15 / scaleFactor, dist * 0.005); 
+        const baseSize = 0.08 / scaleFactor; 
+        const size = Math.max(baseSize, dist * 0.003); 
         
         let color = 0x00FF00; let geom;
 
-        if (snapType === 'midpoint') {
-            color = 0x00FFFF; 
-            geom = new THREE.CylinderGeometry(size, size, 0.01, 3);
-            geom.applyMatrix(new THREE.Matrix4().makeRotationX(Math.PI / 2));
+        // 🌟 ADDED 'wall' TYPE FOR CAD JOINTS
+        if (snapType === 'wall') {
+            color = 0x888888; // White dot for CAD lines
+            geom = new THREE.CircleGeometry(size * 0.5, 16); 
         } else if (snapType === 'center') {
             color = 0xFF9900; // Orange Ring
             geom = new THREE.RingGeometry(size * 0.5, size * 1.5, 16);
@@ -68,6 +76,7 @@ export class BeamToolVisuals {
         this.osnapMesh.position.set(pos.x, pos.y, 0.05 / scaleFactor); 
         this.viewer.overlays.addMesh(this.osnapMesh, 'beam-tool-scene');
     }
+
     clearGhost() {
         if (this.ghostMesh) this.ghostMesh.visible = false;
     }

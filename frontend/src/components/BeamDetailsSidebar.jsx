@@ -5,8 +5,8 @@ const BeamDetailsSidebar = ({ beams, onDeleteBeam, onUpdateBeamType, onUpdateBea
     const totalVolume = beams.reduce((sum, beam) => {
         const length = parseFloat(beam.length || 0);
         const width = parseFloat(beam.width || 0.2);
-        // If concealed, depth is usually slab thickness (e.g., 0.15m). If normal, use set depth.
-        const depth = parseFloat(beam.beamType === 'CONCEALED' ? 0.15 : (beam.depth || 0.3));
+        // If concealed, depth is usually slab thickness (e.g., 0.12m). If normal, use set depth.
+        const depth = parseFloat(beam.beamType === 'CONCEALED' ? 0.12 : (beam.depth || 0.3));
         return sum + (length * width * depth);
     }, 0).toFixed(2);
 
@@ -62,7 +62,7 @@ const BeamDetailsSidebar = ({ beams, onDeleteBeam, onUpdateBeamType, onUpdateBea
                                     <input 
                                         type="number"
                                         disabled={beam.beamType === 'CONCEALED'}
-                                        value={Math.round((beam.beamType === 'CONCEALED' ? 0.15 : (beam.depth || 0.3)) * 100)} 
+                                        value={Math.round((beam.beamType === 'CONCEALED' ? 0.12 : (beam.depth || 0.3)) * 100)} 
                                         onChange={(e) => onUpdateBeamSize(beam.id, beam.width, parseFloat(e.target.value) / 100)}
                                         style={{ width: '60px', backgroundColor: beam.beamType === 'CONCEALED' ? '#27272a' : '#18181b', color: beam.beamType === 'CONCEALED' ? '#71717a' : '#e4e4e7', border: '1px solid #3f3f46', borderRadius: '4px', padding: '4px 6px', fontSize: '12px', outline: 'none', textAlign: 'center', fontFamily: 'monospace' }}
                                     />

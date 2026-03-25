@@ -52,24 +52,37 @@ const StructuralApsViewer = forwardRef(({ urn, scaleFactor = 1, isViewLocked = f
         }
     };
 
-   // 🌟 HELPER: Draw Beams
-    const drawSolidBeamsHelper = (beams) => {
+  // 🌟 HELPER: Draw Beams
+    const drawSolidBeamsHelper = (beams, hiddenBeamId) => { // 🌟 BRING THIS BACK!
         try {
             if (!viewerRef.current || !viewerRef.current.impl) return;
-            if (!viewerRef.current.overlays.hasScene('beam-scene')) viewerRef.current.overlays.addScene('beam-scene');
-            else { viewerRef.current.overlays.removeScene('beam-scene'); viewerRef.current.overlays.addScene('beam-scene'); }
+            const sceneName = 'beam-scene';
+
+            if (!viewerRef.current.overlays.hasScene(sceneName)) {
+                viewerRef.current.overlays.addScene(sceneName);
+            }
+
+            // Clean old meshes from memory
+            if (viewerRef.current.beamMeshes) {
+                viewerRef.current.beamMeshes.forEach(mesh => {
+                    viewerRef.current.overlays.removeMesh(mesh, sceneName);
+                });
+            }
+            viewerRef.current.beamMeshes = [];
 
             beams.forEach(beam => {
+                // 🌟 THE MISSING LINK: Stop React from redrawing the green beam while we drag it!
+                if (hiddenBeamId && String(beam.id) === String(hiddenBeamId)) return;
+
                 const dx = beam.p2.x - beam.p1.x;
                 const dy = beam.p2.y - beam.p1.y;
                 const dist = Math.sqrt(dx*dx + dy*dy);
                 const angle = Math.atan2(dy, dx);
                 
                 const width = (beam.width || 0.2) / scaleFactor;
-                const depth = (beam.beamType === 'CONCEALED' ? 0.15 : (beam.depth || 0.3)) / scaleFactor;
-                const ceilingZ = (3.0 - ((beam.beamType === 'CONCEALED' ? 0.15 : (beam.depth || 0.3)) / 2)) / scaleFactor;
+                const depth = (beam.beamType === 'CONCEALED' ? 0.12 : (beam.depth || 0.3)) / scaleFactor;
+                const ceilingZ = (3.0 - ((beam.beamType === 'CONCEALED' ? 0.12 : (beam.depth || 0.3)) / 2)) / scaleFactor;
 
-                // 🌟 APPLY JUSTIFICATION OFFSET TO FINAL 3D MESH
                 let offsetDist = 0;
                 if (beam.justification === 'LEFT') offsetDist = width / 2;
                 if (beam.justification === 'RIGHT') offsetDist = -width / 2;
@@ -82,20 +95,27 @@ const StructuralApsViewer = forwardRef(({ urn, scaleFactor = 1, isViewLocked = f
 
                 const geometry = new THREE.BoxGeometry(dist, width, depth);
                 const material = new THREE.MeshBasicMaterial({ 
-                    color: 0x3b82f6, transparent: beam.beamType === 'CONCEALED',
-                    opacity: beam.beamType === 'CONCEALED' ? 0.4 : 1.0, depthTest: false 
+                    color: 0x22c55e, 
+                    transparent: beam.beamType === 'CONCEALED',
+                    opacity: beam.beamType === 'CONCEALED' ? 0.4 : 1.0, 
+                    depthTest: false 
                 }); 
                 const mesh = new THREE.Mesh(geometry, material);
+                
+                // Keep this! The tool still uses it for the instant-hide.
+                mesh.userData = { id: beam.id }; 
                 
                 mesh.position.set(midX, midY, ceilingZ); 
                 mesh.rotation.z = angle;
                 
-                viewerRef.current.overlays.addMesh(mesh, 'beam-scene');
+                viewerRef.current.overlays.addMesh(mesh, sceneName);
+                viewerRef.current.beamMeshes.push(mesh);
             });
             viewerRef.current.impl.invalidate(true, true, true);
         } catch (e) { console.error("Error drawing beams:", e); }
     };
 
+    
     useImperativeHandle(ref, () => ({
         viewer: viewerRef.current,
 
@@ -142,8 +162,8 @@ const StructuralApsViewer = forwardRef(({ urn, scaleFactor = 1, isViewLocked = f
                 viewerRef.current.toolController.deactivateTool('column-drawing-tool');
             }
 
-            // --- 3. BEAM TOOL LOGIC (🌟 ADDED) ---
-           if (!viewerRef.current.toolController.getTool('beam-drawing-tool')) {
+            // --- 3. BEAM TOOL LOGIC ---
+            if (!viewerRef.current.toolController.getTool('beam-drawing-tool')) {
                 const beamTool = new BeamDrawingTool(viewerRef.current);
                 viewerRef.current.toolController.registerTool(beamTool);
             }
@@ -151,24 +171,29 @@ const StructuralApsViewer = forwardRef(({ urn, scaleFactor = 1, isViewLocked = f
             if (beamTool) {
                 if (beamTool.setScaleFactor) beamTool.setScaleFactor(scaleFactor);
                 if (beamTool.updateSnapPoints) beamTool.updateSnapPoints(settings.snapPoints || []);
-                // 🌟 PASS ORTHO TO THE BEAM TOOL
                 if (beamTool.setToggles) beamTool.setToggles(settings.orthoEnabled, settings.osnapEnabled);
                 beamTool.justification = settings.beamJustification || 'CENTER';
+
+                // 🌟 PASS EDIT MODE AND BEAMS INTO THE TOOL
+                if (beamTool.setPlacedBeams) beamTool.setPlacedBeams(settings.placedBeams || []);
+                if (beamTool.setMode) beamTool.setMode(settings.activeTool === 'BEAM_EDIT' ? 'EDIT' : 'DRAW');
             }
 
-            if (settings.activeTool === 'BEAM_DRAW') {
+            // 🌟 ACTIVATE FOR BOTH DRAW AND EDIT MODES
+            if (settings.activeTool === 'BEAM_DRAW' || settings.activeTool === 'BEAM_EDIT') {
                 viewerRef.current.toolController.activateTool('beam-drawing-tool');
             } else {
                 viewerRef.current.toolController.deactivateTool('beam-drawing-tool');
             }
 
-            // --- 4. DRAW PLACED ELEMENTS ---
-            if (settings.placedColumns && viewerRef.current) {
-                drawSolidColumnsHelper(settings.placedColumns);
-            }
-            if (settings.placedBeams && viewerRef.current) {
-                drawSolidBeamsHelper(settings.placedBeams); // 🌟 BEAMS DRAWN HERE
-            }
+          // --- 4. DRAW PLACED ELEMENTS ---
+         if (settings.placedColumns && viewerRef.current) {
+             drawSolidColumnsHelper(settings.placedColumns);
+         }
+         if (settings.placedBeams && viewerRef.current) {
+             // 🌟 ADD "settings.editingBeamId" HERE!
+             drawSolidBeamsHelper(settings.placedBeams, settings.editingBeamId); 
+         }
         },
 
         clearWalls: () => {

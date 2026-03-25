@@ -52,22 +52,23 @@ const StructuralEditor = () => {
     const [placedColumns, setPlacedColumns] = useState([]);
     const [placedBeams, setPlacedBeams] = useState([]); // 🌟 ADDED BEAM STATE
     const [placedSlabs, setPlacedSlabs] = useState([]);
+    const [editingBeamId, setEditingBeamId] = useState(null);
 
     // 🌟 Master Snap Engine: Corners, Centers, and Faces with Data
     const snapPoints = React.useMemo(() => {
         let pts = [];
         const activeFloor = archFloors[currentFloorIndex];
-        
+
         if (activeFloor && activeFloor.walls) {
             activeFloor.walls.forEach(wall => {
                 if (wall.points?.p1) pts.push({ ...wall.points.p1, colSize: 0.23, type: 'wall' });
                 if (wall.points?.p2) pts.push({ ...wall.points.p2, colSize: 0.23, type: 'wall' });
             });
         }
-        
+
         placedColumns.forEach(col => {
             if (col.floorIndex !== currentFloorIndex) return;
-            
+
             const colSize = col.shape === 'CIRCULAR' ? (col.radius * 2) : Math.min(col.width, col.depth);
 
             if (col.shape === 'CIRCULAR') {
@@ -77,30 +78,30 @@ const StructuralEditor = () => {
                 const hw = (col.width / scaleFactor) / 2;
                 const hd = (col.depth / scaleFactor) / 2;
                 const angle = col.rotation || 0;
-                const cosA = Math.cos(angle); 
+                const cosA = Math.cos(angle);
                 const sinA = Math.sin(angle);
 
                 const addPt = (lx, ly, type) => {
                     pts.push({
                         x: col.x + (lx * cosA - ly * sinA),
                         y: col.y + (lx * sinA + ly * cosA),
-                        isCorner: type === 'corner', 
-                        isFace: type === 'face', 
+                        isCorner: type === 'corner',
+                        isFace: type === 'face',
                         isCenter: type === 'center',
-                        colSize: colSize 
+                        colSize: colSize
                     });
                 };
 
                 addPt(0, 0, 'center');
-                addPt(-hw, -hd, 'corner'); addPt(hw, -hd, 'corner'); 
+                addPt(-hw, -hd, 'corner'); addPt(hw, -hd, 'corner');
                 addPt(hw, hd, 'corner'); addPt(-hw, hd, 'corner');
-                addPt(0, -hd, 'face'); addPt(hw, 0, 'face'); 
+                addPt(0, -hd, 'face'); addPt(hw, 0, 'face');
                 addPt(0, hd, 'face'); addPt(-hw, 0, 'face');
             }
         });
-        
+
         return pts;
-    }, [archFloors, currentFloorIndex, placedColumns, scaleFactor]); 
+    }, [archFloors, currentFloorIndex, placedColumns, scaleFactor]);
 
     const processCenterlines = (rawFloors) => {
         const SNAP_TOLERANCE = 0.15;
@@ -182,6 +183,7 @@ const StructuralEditor = () => {
 
                 placedColumns: placedColumns.filter(c => c.floorIndex === currentFloorIndex),
                 placedBeams: placedBeams.filter(b => b.floorIndex === currentFloorIndex),
+                editingBeamId: editingBeamId,
 
                 editingAreaId: editingAreaId,
                 beamJustification: beamJustification,
@@ -191,7 +193,7 @@ const StructuralEditor = () => {
                 osnapEnabled: osnapEnabled
             });
         }
-    }, [activeTool, areaMode, zoneType, snapPoints, orthoEnabled, osnapEnabled, viewerReady, drawnAreas, editingAreaId, currentFloorIndex, placedColumns, placedBeams, beamJustification]); 
+    }, [activeTool, areaMode, zoneType, snapPoints, orthoEnabled, osnapEnabled, viewerReady, drawnAreas, editingAreaId, currentFloorIndex, placedColumns, placedBeams, beamJustification, editingBeamId]);
 
     // 🌟 EVENT LISTENERS
     useEffect(() => {
@@ -252,20 +254,35 @@ const StructuralEditor = () => {
             floorIndex: currentFloorIndex
         }]);
 
+        // 🌟 ADD THIS NEW LISTENER FOR EDITED BEAMS
+        const handleBeamUpdate = (e) => {
+            setPlacedBeams(prev => prev.map(b =>
+                b.id === e.detail.id ? { ...b, p1: e.detail.p1, p2: e.detail.p2, length: e.detail.length } : b
+            ));
+            setEditingBeamId(null);
+        };
+        const handleBeamEditStart = (e) => setEditingBeamId(e.detail.id);
+        const handleBeamEditCancel = () => setEditingBeamId(null);
         const handleSlabEvent = (e) => setPlacedSlabs(prev => [...prev, { id: Date.now() + Math.random(), name: `Span ${prev.length + 1}`, type: activeTool, area: e.detail.area || 10, thickness: 0.15, floorIndex: currentFloorIndex }]);
 
         window.addEventListener('AREA_COMPLETED', handleArea);
         window.addEventListener('AREA_UPDATED', handleAreaEdit);
         window.addEventListener('COLUMN_PLACED', handleColumnEvent);
-        window.addEventListener('BEAM_PLACED', handleBeamEvent); // 🌟 ADDED EVENT
+        window.addEventListener('BEAM_PLACED', handleBeamEvent);
         window.addEventListener('SLAB_PLACED', handleSlabEvent);
+        window.addEventListener('BEAM_UPDATED', handleBeamUpdate);
+        window.addEventListener('BEAM_EDIT_START', handleBeamEditStart);
+        window.addEventListener('BEAM_EDIT_CANCEL', handleBeamEditCancel);
 
         return () => {
             window.removeEventListener('AREA_COMPLETED', handleArea);
             window.removeEventListener('AREA_UPDATED', handleAreaEdit);
             window.removeEventListener('COLUMN_PLACED', handleColumnEvent);
-            window.removeEventListener('BEAM_PLACED', handleBeamEvent); // 🌟 REMOVE EVENT
+            window.removeEventListener('BEAM_PLACED', handleBeamEvent);
+            window.removeEventListener('BEAM_UPDATED', handleBeamUpdate);
             window.removeEventListener('SLAB_PLACED', handleSlabEvent);
+            window.removeEventListener('BEAM_EDIT_START', handleBeamEditStart); // 🌟 Cleanup
+            window.removeEventListener('BEAM_EDIT_CANCEL', handleBeamEditCancel); // 🌟 Cleanup
         };
     }, [zoneType, scaleFactor, archFloors, currentFloorIndex, activeTool]);
 
@@ -351,7 +368,7 @@ const StructuralEditor = () => {
                 zoneType={zoneType} setZoneType={setZoneType} isSaving={isSaving} handleNextStep={handleNextStep}
                 showWalls={showWalls} setShowWalls={setShowWalls}
                 structuralMode={structuralMode} setStructuralMode={setStructuralMode}
-                beamJustification={beamJustification}       
+                beamJustification={beamJustification}
                 setBeamJustification={setBeamJustification}
             />
 
